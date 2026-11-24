@@ -1,0 +1,413 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user profile storing multi-device sync preferences, role, and practice stats.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 160
+        },
+        "role": {
+          "type": "string",
+          "enum": ["member", "admin"]
+        },
+        "totalChantingMinutes": {
+          "type": "integer"
+        },
+        "chantingSessionsCount": {
+          "type": "integer"
+        },
+        "joinedGatherings": {
+          "type": "array"
+        },
+        "favoriteScriptures": {
+          "type": "array"
+        },
+        "visitedBuildings": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "email",
+        "role",
+        "totalChantingMinutes",
+        "chantingSessionsCount",
+        "joinedGatherings",
+        "favoriteScriptures",
+        "visitedBuildings",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ChantingLog": {
+      "title": "ChantingLog",
+      "description": "Individual meditation or scripture chanting session recorded by a user.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "minutes": {
+          "type": "integer"
+        },
+        "scriptureId": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "scriptureTitle": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "minutes", "scriptureId", "scriptureTitle", "createdAt"]
+    },
+    "CulturalPark": {
+      "title": "CulturalPark",
+      "description": "Independent cultural park entry (Buddhist, Daoist, or Chinese Heritage).",
+      "type": "object",
+      "properties": {
+        "slug": {
+          "type": "string",
+          "enum": ["buddhist", "daoist", "culture"]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "englishTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "identity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "introduction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "categories": {
+          "type": "array"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "slug",
+        "title",
+        "englishTitle",
+        "identity",
+        "introduction",
+        "image",
+        "categories",
+        "updatedAt"
+      ]
+    },
+    "ParkBuilding": {
+      "title": "ParkBuilding",
+      "description": "Architectural hall or pavilion inside a cultural park.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "parkSlug": {
+          "type": "string",
+          "enum": ["buddhist", "daoist", "culture"]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "subtitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500
+        },
+        "scene": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500
+        },
+        "categoryIds": {
+          "type": "array"
+        },
+        "icon": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "parkSlug",
+        "title",
+        "subtitle",
+        "description",
+        "scene",
+        "categoryIds",
+        "icon",
+        "updatedAt"
+      ]
+    },
+    "Scripture": {
+      "title": "Scripture",
+      "description": "Traditional classic or scripture with excerpt and full reading text.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "tradition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "parkSlug": {
+          "type": "string",
+          "enum": ["buddhist", "daoist", "culture"]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "excerpt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "fullText": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50000
+        },
+        "icon": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "tradition",
+        "parkSlug",
+        "description",
+        "excerpt",
+        "fullText",
+        "icon",
+        "updatedAt"
+      ]
+    },
+    "Gathering": {
+      "title": "Gathering",
+      "description": "Community co-practice schedule item.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "day": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "time": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "icon": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "day",
+        "time",
+        "title",
+        "description",
+        "icon",
+        "updatedAt"
+      ]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Verified administrator allowlist entry.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 160
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["email", "createdAt"]
+    },
+    "ChantingTrack": {
+      "title": "ChantingTrack",
+      "description": "Admin-curated chanting or meditation audio track referenced by HTTPS URL.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "parkSlug": {
+          "type": "string",
+          "enum": ["buddhist", "daoist", "culture"]
+        },
+        "scriptureId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "durationLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "audioUrl": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 1000
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "parkSlug",
+        "scriptureId",
+        "durationLabel",
+        "audioUrl",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private per-user profile and sync data (restricted to owner or admin)."
+    },
+    "/users/{userId}/chantingLogs/{logId}": {
+      "schema": { "$ref": "#/entities/ChantingLog" },
+      "description": "Per-user meditation/chanting history logs."
+    },
+    "/parks/{parkSlug}": {
+      "schema": { "$ref": "#/entities/CulturalPark" },
+      "description": "Cultural parks metadata (public read, admin write)."
+    },
+    "/buildings/{buildingId}": {
+      "schema": { "$ref": "#/entities/ParkBuilding" },
+      "description": "Buildings within each cultural park (public read, admin write)."
+    },
+    "/scriptures/{scriptureId}": {
+      "schema": { "$ref": "#/entities/Scripture" },
+      "description": "Scriptures and classics full-text entries (public read, admin write)."
+    },
+    "/gatherings/{gatheringId}": {
+      "schema": { "$ref": "#/entities/Gathering" },
+      "description": "Community co-practice schedule items (public read, admin write)."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Admin authorization documents (admin read/write only)."
+    },
+    "/chantingTracks/{trackId}": {
+      "schema": { "$ref": "#/entities/ChantingTrack" },
+      "description": "Chanting audio tracks (public read, admin write)."
+    }
+  }
+}

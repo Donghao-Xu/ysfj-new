@@ -1,0 +1,309 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Helpers ---
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == '9362056x@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserProfile(data) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'email', 'role',
+          'totalChantingMinutes', 'chantingSessionsCount',
+          'joinedGatherings', 'favoriteScriptures', 'visitedBuildings',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'email', 'role',
+          'totalChantingMinutes', 'chantingSessionsCount',
+          'joinedGatherings', 'favoriteScriptures', 'visitedBuildings',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.role in ['member', 'admin']
+        && data.totalChantingMinutes is int && data.totalChantingMinutes >= 0 && data.totalChantingMinutes <= 1000000
+        && data.chantingSessionsCount is int && data.chantingSessionsCount >= 0 && data.chantingSessionsCount <= 100000
+        && data.joinedGatherings is list && data.joinedGatherings.size() <= 20
+        && (data.joinedGatherings.size() == 0 || data.joinedGatherings[0] is string)
+        && data.favoriteScriptures is list && data.favoriteScriptures.size() <= 50
+        && (data.favoriteScriptures.size() == 0 || data.favoriteScriptures[0] is string)
+        && data.visitedBuildings is list && data.visitedBuildings.size() <= 100
+        && (data.visitedBuildings.size() == 0 || data.visitedBuildings[0] is string)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChantingLog(data) {
+      return data.keys().hasAll(['uid', 'minutes', 'scriptureId', 'scriptureTitle', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'minutes', 'scriptureId', 'scriptureTitle', 'createdAt'])
+        && isValidId(data.uid)
+        && data.minutes is int && data.minutes >= 1 && data.minutes <= 180
+        && data.scriptureId is string && data.scriptureId.size() >= 1 && data.scriptureId.size() <= 80
+        && data.scriptureTitle is string && data.scriptureTitle.size() >= 1 && data.scriptureTitle.size() <= 100
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPark(data) {
+      return data.keys().hasAll(['slug', 'title', 'englishTitle', 'identity', 'introduction', 'image', 'categories', 'updatedAt'])
+        && data.keys().hasOnly(['slug', 'title', 'englishTitle', 'identity', 'introduction', 'image', 'categories', 'updatedAt'])
+        && data.slug in ['buddhist', 'daoist', 'culture']
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 60
+        && data.englishTitle is string && data.englishTitle.size() >= 1 && data.englishTitle.size() <= 100
+        && data.identity is string && data.identity.size() >= 1 && data.identity.size() <= 60
+        && data.introduction is string && data.introduction.size() >= 1 && data.introduction.size() <= 1000
+        && data.image is string && data.image.size() >= 1 && data.image.size() <= 300
+        && data.categories is list && data.categories.size() <= 10
+        && (data.categories.size() == 0 || data.categories[0] is map)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidBuilding(data) {
+      return data.keys().hasAll(['id', 'parkSlug', 'title', 'subtitle', 'description', 'scene', 'categoryIds', 'icon', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'parkSlug', 'title', 'subtitle', 'description', 'scene', 'categoryIds', 'icon', 'updatedAt'])
+        && isValidId(data.id)
+        && data.parkSlug in ['buddhist', 'daoist', 'culture']
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 80
+        && data.subtitle is string && data.subtitle.size() >= 1 && data.subtitle.size() <= 120
+        && data.description is string && data.description.size() >= 1 && data.description.size() <= 1500
+        && data.scene is string && data.scene.size() >= 1 && data.scene.size() <= 1500
+        && data.categoryIds is list && data.categoryIds.size() <= 10
+        && (data.categoryIds.size() == 0 || data.categoryIds[0] is string)
+        && data.icon is string && data.icon.size() >= 1 && data.icon.size() <= 40
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidScripture(data) {
+      return data.keys().hasAll(['id', 'title', 'tradition', 'parkSlug', 'description', 'excerpt', 'fullText', 'icon', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'title', 'tradition', 'parkSlug', 'description', 'excerpt', 'fullText', 'icon', 'updatedAt'])
+        && isValidId(data.id)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 80
+        && data.tradition is string && data.tradition.size() >= 1 && data.tradition.size() <= 80
+        && data.parkSlug in ['buddhist', 'daoist', 'culture']
+        && data.description is string && data.description.size() >= 1 && data.description.size() <= 1000
+        && data.excerpt is string && data.excerpt.size() >= 1 && data.excerpt.size() <= 500
+        && data.fullText is string && data.fullText.size() >= 1 && data.fullText.size() <= 50000
+        && data.icon is string && data.icon.size() >= 1 && data.icon.size() <= 40
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGathering(data) {
+      return data.keys().hasAll(['id', 'day', 'time', 'title', 'description', 'icon', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'day', 'time', 'title', 'description', 'icon', 'updatedAt'])
+        && isValidId(data.id)
+        && data.day is string && data.day.size() >= 1 && data.day.size() <= 40
+        && data.time is string && data.time.size() >= 1 && data.time.size() <= 60
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 80
+        && data.description is string && data.description.size() >= 1 && data.description.size() <= 500
+        && data.icon is string && data.icon.size() >= 1 && data.icon.size() <= 40
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChantingTrack(data) {
+      return data.keys().hasAll(['id', 'title', 'parkSlug', 'scriptureId', 'durationLabel', 'audioUrl', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'title', 'parkSlug', 'scriptureId', 'durationLabel', 'audioUrl', 'updatedAt'])
+        && isValidId(data.id)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 80
+        && data.parkSlug in ['buddhist', 'daoist', 'culture']
+        && data.scriptureId is string && data.scriptureId.size() <= 128
+        && data.durationLabel is string && data.durationLabel.size() >= 1 && data.durationLabel.size() <= 40
+        && data.audioUrl is string && data.audioUrl.size() >= 10 && data.audioUrl.size() <= 1000 && data.audioUrl.matches('^https://.*')
+        && data.updatedAt is timestamp;
+    }
+
+    // --- Collection Rules ---
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == userId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (incoming().role == 'member' || (incoming().role == 'admin' && isBootstrappedAdmin()));
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            isOwner(userId)
+            && incoming().role == existing().role
+            && (
+              incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']) ||
+              incoming().diff(existing()).affectedKeys().hasOnly(['joinedGatherings', 'updatedAt']) ||
+              incoming().diff(existing()).affectedKeys().hasOnly(['favoriteScriptures', 'updatedAt']) ||
+              incoming().diff(existing()).affectedKeys().hasOnly(['visitedBuildings', 'updatedAt']) ||
+              incoming().diff(existing()).affectedKeys().hasOnly(['totalChantingMinutes', 'chantingSessionsCount', 'updatedAt'])
+            )
+          )
+        );
+      allow delete: if isValidId(userId) && isAdmin();
+
+      match /chantingLogs/{logId} {
+        allow get: if isValidId(userId) && isValidId(logId) && (isOwner(userId) || isAdmin())
+          && exists(/databases/$(database)/documents/users/$(userId));
+        allow list: if isValidId(userId) && isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+        allow create: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(logId)
+          && isOwner(userId)
+          && isValidChantingLog(incoming())
+          && incoming().uid == request.auth.uid
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId));
+        allow update: if false;
+        allow delete: if isValidId(userId) && isValidId(logId) && (isOwner(userId) || isAdmin());
+      }
+    }
+
+    match /parks/{parkSlug} {
+      allow get: if isValidId(parkSlug);
+      allow list: if true;
+      allow create: if isAdmin()
+        && isValidId(parkSlug)
+        && isValidPark(incoming())
+        && incoming().slug == parkSlug
+        && incoming().updatedAt == request.time;
+      allow update: if isAdmin()
+        && isValidId(parkSlug)
+        && isValidPark(incoming())
+        && incoming().slug == existing().slug
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'englishTitle', 'identity', 'introduction', 'image', 'categories', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(parkSlug);
+    }
+
+    match /buildings/{buildingId} {
+      allow get: if isValidId(buildingId);
+      allow list: if true;
+      allow create: if isAdmin()
+        && isValidId(buildingId)
+        && isValidBuilding(incoming())
+        && incoming().id == buildingId
+        && incoming().updatedAt == request.time;
+      allow update: if isAdmin()
+        && isValidId(buildingId)
+        && isValidBuilding(incoming())
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'parkSlug', 'title', 'subtitle', 'description', 'scene', 'categoryIds', 'icon', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(buildingId);
+    }
+
+    match /scriptures/{scriptureId} {
+      allow get: if isValidId(scriptureId);
+      allow list: if true;
+      allow create: if isAdmin()
+        && isValidId(scriptureId)
+        && isValidScripture(incoming())
+        && incoming().id == scriptureId
+        && incoming().updatedAt == request.time;
+      allow update: if isAdmin()
+        && isValidId(scriptureId)
+        && isValidScripture(incoming())
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'tradition', 'parkSlug', 'description', 'excerpt', 'fullText', 'icon', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(scriptureId);
+    }
+
+    match /gatherings/{gatheringId} {
+      allow get: if isValidId(gatheringId);
+      allow list: if true;
+      allow create: if isAdmin()
+        && isValidId(gatheringId)
+        && isValidGathering(incoming())
+        && incoming().id == gatheringId
+        && incoming().updatedAt == request.time;
+      allow update: if isAdmin()
+        && isValidId(gatheringId)
+        && isValidGathering(incoming())
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'day', 'time', 'title', 'description', 'icon', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(gatheringId);
+    }
+
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if isBootstrappedAdmin()
+        && isValidId(userId)
+        && incoming().keys().hasAll(['email', 'createdAt'])
+        && incoming().keys().hasOnly(['email', 'createdAt'])
+        && incoming().email is string && incoming().email.size() <= 160
+        && incoming().createdAt == request.time;
+      allow delete: if isBootstrappedAdmin() && isValidId(userId);
+    }
+
+    match /chantingTracks/{trackId} {
+      allow get: if isValidId(trackId);
+      allow list: if true;
+      allow create: if isAdmin()
+        && isValidId(trackId)
+        && isValidChantingTrack(incoming())
+        && incoming().id == trackId
+        && incoming().updatedAt == request.time;
+      allow update: if isAdmin()
+        && isValidId(trackId)
+        && isValidChantingTrack(incoming())
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'parkSlug', 'scriptureId', 'durationLabel', 'audioUrl', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(trackId);
+    }
+  }
+}
