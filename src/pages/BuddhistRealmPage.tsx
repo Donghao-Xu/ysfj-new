@@ -18,13 +18,12 @@ import {
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
-import { HallInteractiveStageOverlay } from "@/components/PractitionerStage";
+import { BuddhistHallStage } from "@/components/BuddhistHallStage";
 import {
   SacredEnvironmentLayer,
   SceneTransitionCurtain,
 } from "@/components/SacredAtmosphere";
 import {
-  BuddhistRitualStage,
   FlowerOfferVisual,
   IncenseOfferVisual,
   LampOfferVisual,
@@ -34,16 +33,21 @@ import {
   type LampStyle,
 } from "@/components/SacredInteractions";
 import { SceneStageImage } from "@/components/SceneStageImage";
+import {
+  SpatialViewport2D5,
+  type RoamingTransitionState,
+} from "@/components/SpatialViewport2D5";
 import { useAppState } from "@/context/AppContext";
 import {
   BUDDHIST_GATE_SCENE,
   BUDDHIST_SCENES,
   type SceneConfig,
 } from "@/data/scenes";
+import { getSpatialNode, type SpatialConnection } from "@/data/spatialGraph";
 import {
-  natureAudio,
   playSingingBowlChime,
   playTempleBellSound,
+  soundManager,
 } from "@/lib/audio";
 import {
   ACTION_LABELS,
@@ -99,12 +103,13 @@ export function BuddhistRealmPage() {
   const [transitionSeq, setTransitionSeq] = useState(0);
   const [ambientOn, setAmbientOn] = useState(false);
   const [volume, setVolume] = useState(settings.defaultVolume);
+  const [roamTransition, setRoamTransition] = useState<RoamingTransitionState>({
+    active: false,
+    kind: "push-in",
+    phase: "idle",
+  });
 
   // Respectful worship interactions + animation sequence counters
-  const [hezhangActive, setHezhangActive] = useState(false);
-  const [hezhangSeq, setHezhangSeq] = useState(0);
-  const [lifoActive, setLifoActive] = useState(false);
-  const [lifoSeq, setLifoSeq] = useState(0);
   const [incenseLit, setIncenseLit] = useState<0 | 1 | 3>(0);
   const [incenseSeq, setIncenseSeq] = useState(0);
   const [selectedLamp, setSelectedLamp] = useState<LampStyle>("lotus");
@@ -114,6 +119,7 @@ export function BuddhistRealmPage() {
   const [flowerOffered, setFlowerOffered] = useState(false);
   const [flowerSeq, setFlowerSeq] = useState(0);
   const [sessionWoodfish, setSessionWoodfish] = useState(0);
+  const [woodfishSeq, setWoodfishSeq] = useState(0);
   const [chantingPlaying, setChantingPlaying] = useState(false);
   const [manualAction, setManualAction] = useState<PractitionerAction | null>(
     null,
@@ -121,17 +127,19 @@ export function BuddhistRealmPage() {
   const [wishText, setWishText] = useState("");
   const [wishNotice, setWishNotice] = useState("");
 
-  const hezhangTimerRef = useRef<number | null>(null);
-  const lifoTimerRef = useRef<number | null>(null);
   const manualActionTimerRef = useRef<number | null>(null);
   const wishTimerRef = useRef<number | null>(null);
+  const roamTimerRef = useRef<number | null>(null);
+  const roamSettleTimerRef = useRef<number | null>(null);
   const chantingAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const spatialNode = getSpatialNode(activeScene.sceneId);
 
   const effectiveAction: PractitionerAction =
     manualAction ?? (chantingPlaying ? "chanting" : "idle");
 
   // Co-presence strictly activates only inside an entered hall interior
-  const { peers, canPublish, totalInScene } = useScenePresence({
+  const { peers, totalInScene } = useScenePresence({
     sceneId: activeScene.sceneId,
     religionType: "buddhist",
     currentAction: effectiveAction,
@@ -140,7 +148,7 @@ export function BuddhistRealmPage() {
 
   const triggerAvatarAction = (
     action: PractitionerAction,
-    durationMs = 3000,
+    durationMs = 2400,
   ) => {
     setManualAction(action);
     if (manualActionTimerRef.current) {
@@ -153,20 +161,29 @@ export function BuddhistRealmPage() {
 
   useEffect(() => {
     return () => {
-      natureAudio.stop();
-      if (hezhangTimerRef.current) window.clearTimeout(hezhangTimerRef.current);
-      if (lifoTimerRef.current) window.clearTimeout(lifoTimerRef.current);
+      soundManager.stopAllStreams();
       if (manualActionTimerRef.current) {
         window.clearTimeout(manualActionTimerRef.current);
       }
       if (wishTimerRef.current) window.clearTimeout(wishTimerRef.current);
+      if (roamTimerRef.current) window.clearTimeout(roamTimerRef.current);
+      if (roamSettleTimerRef.current) {
+        window.clearTimeout(roamSettleTimerRef.current);
+      }
     };
   }, []);
 
-  // Sync active ambient sound type when scene changes (only if user already enabled audio)
+  // Sync active 5-layer soundscape smoothly when switching Buddhist scenes (only if user already enabled sound)
   useEffect(() => {
     if (ambientOn) {
-      natureAudio.start(activeScene.audioConfig.natureType, volume * 0.6);
+      soundManager.applySceneProfile(
+        {
+          ambient: activeScene.audioConfig.natureType,
+          religious: "buddhist",
+        },
+        { startIfUnlocked: true },
+      );
+      soundManager.setAmbientOverrideVolume(volume);
     }
   }, [activeScene.sceneId, activeScene.audioConfig.natureType, ambientOn, volume]);
 
@@ -174,11 +191,7 @@ export function BuddhistRealmPage() {
     if (manualActionTimerRef.current) {
       window.clearTimeout(manualActionTimerRef.current);
     }
-    if (hezhangTimerRef.current) window.clearTimeout(hezhangTimerRef.current);
-    if (lifoTimerRef.current) window.clearTimeout(lifoTimerRef.current);
     setManualAction(null);
-    setHezhangActive(false);
-    setLifoActive(false);
     setIncenseLit(0);
     setLampLit(false);
     setFlowerOffered(false);
@@ -186,6 +199,30 @@ export function BuddhistRealmPage() {
     if (chantingAudioRef.current) {
       chantingAudioRef.current.pause();
     }
+  };
+
+  const runSpatialSequence = (
+    kind: RoamingTransitionState["kind"],
+    label: string,
+    onMidpoint: () => void,
+    spatialCue: "gate-pass" | "hall-enter" | "hall-exit" = "gate-pass",
+  ) => {
+    if (roamTimerRef.current) window.clearTimeout(roamTimerRef.current);
+    if (roamSettleTimerRef.current) {
+      window.clearTimeout(roamSettleTimerRef.current);
+    }
+
+    soundManager.playSpatialCue("footstep", 3);
+    soundManager.playSpatialCue(spatialCue);
+
+    setRoamTransition({ active: true, kind, phase: "depart", label });
+    roamTimerRef.current = window.setTimeout(() => {
+      onMidpoint();
+      setRoamTransition({ active: true, kind, phase: "arrive" });
+      roamSettleTimerRef.current = window.setTimeout(() => {
+        setRoamTransition({ active: false, kind: "push-in", phase: "idle" });
+      }, 420);
+    }, 440);
   };
 
   const selectScene = (nextSceneId: string) => {
@@ -199,25 +236,56 @@ export function BuddhistRealmPage() {
     setTransitionSeq((s) => s + 1);
   };
 
+  const handleWalkToConnection = (conn: SpatialConnection) => {
+    runSpatialSequence(
+      conn.transitionType,
+      conn.label,
+      () => selectScene(conn.targetSceneId),
+      "gate-pass",
+    );
+  };
+
   const handleEnterHall = () => {
     if (!activeScene.hasInterior) return;
-    setEnteredHall(true);
-    setTransitionSeq((s) => s + 1);
-    playSingingBowlChime(volume * 0.65);
+    runSpatialSequence(
+      "push-in",
+      `步入${activeScene.sceneName}`,
+      () => {
+        setEnteredHall(true);
+        setTransitionSeq((s) => s + 1);
+        playSingingBowlChime(volume * 0.65);
+      },
+      "hall-enter",
+    );
   };
 
   const handleExitHall = () => {
-    resetHallRitualState();
-    setEnteredHall(false);
-    setTransitionSeq((s) => s + 1);
+    runSpatialSequence(
+      "pull-back",
+      "退至殿外正面",
+      () => {
+        resetHallRitualState();
+        setEnteredHall(false);
+        setTransitionSeq((s) => s + 1);
+      },
+      "hall-exit",
+    );
   };
 
   const toggleAmbient = () => {
     if (ambientOn) {
-      natureAudio.stop();
+      soundManager.stopAllStreams();
       setAmbientOn(false);
     } else {
-      natureAudio.start(activeScene.audioConfig.natureType, volume * 0.6);
+      soundManager.applySceneProfile(
+        {
+          ambient: activeScene.audioConfig.natureType,
+          religious: "buddhist",
+          music: settings.musicTrackId,
+        },
+        { startIfUnlocked: true },
+      );
+      soundManager.setAmbientOverrideVolume(volume);
       setAmbientOn(true);
     }
   };
@@ -225,67 +293,89 @@ export function BuddhistRealmPage() {
   const handleVolumeChange = (next: number) => {
     setVolume(next);
     if (ambientOn) {
-      natureAudio.setVolume(next * 0.6);
+      soundManager.setAmbientOverrideVolume(next);
     }
   };
 
   const handleSelectHall = (hallSceneId: string) => {
-    selectScene(hallSceneId);
+    if (hallSceneId === activeScene.sceneId) return;
+    const target = BUDDHIST_DISPLAY_SCENES.find((s) => s.sceneId === hallSceneId);
+    runSpatialSequence(
+      "push-in",
+      `前往${target?.sceneName || "佛殿"}`,
+      () => selectScene(hallSceneId),
+      "gate-pass",
+    );
   };
 
   const handleHezhang = () => {
     if (!isInsideHall) return;
-    setLifoActive(false);
-    setHezhangActive(true);
-    setHezhangSeq((s) => s + 1);
-    triggerAvatarAction("hezhang", 2800);
+    triggerAvatarAction("hezhang", 2200);
     recordOffering("bow");
-    playSingingBowlChime(volume * 0.45);
-    if (hezhangTimerRef.current) window.clearTimeout(hezhangTimerRef.current);
-    hezhangTimerRef.current = window.setTimeout(
-      () => setHezhangActive(false),
-      2800,
-    );
+    soundManager.playSfx("bow", volume * 0.65);
   };
 
   const handleLifo = () => {
     if (!isInsideHall) return;
-    setHezhangActive(false);
-    setLifoActive(true);
-    setLifoSeq((s) => s + 1);
-    triggerAvatarAction("lifo", 2900);
+    triggerAvatarAction("lifo", 2600);
     recordOffering("bow");
     playTempleBellSound(volume * 0.55);
-    if (lifoTimerRef.current) window.clearTimeout(lifoTimerRef.current);
-    lifoTimerRef.current = window.setTimeout(
-      () => setLifoActive(false),
-      2900,
-    );
   };
 
   const handleLightIncense = (sticks: 1 | 3) => {
     if (!isInsideHall) return;
     setIncenseLit(sticks);
     setIncenseSeq((s) => s + 1);
-    triggerAvatarAction("incense", 3200);
+    triggerAvatarAction("incense", 2400);
     recordOffering("incense");
+    soundManager.playSfx("incense", volume * 0.75);
+  };
+
+  const handleLightIncenseFromBar = () => {
+    if (!isInsideHall) return;
+    if (incenseLit > 0) {
+      handleLightIncense(incenseLit === 3 ? 1 : 3);
+      return;
+    }
+    handleLightIncense(3);
   };
 
   const handleLightLamp = () => {
     if (!isInsideHall) return;
     setLampLit(true);
     setLampSeq((s) => s + 1);
-    triggerAvatarAction("lamp", 3200);
+    triggerAvatarAction("lamp", 2400);
     recordOffering("lamp");
-    playSingingBowlChime(volume * 0.55);
+    soundManager.playSfx("lamp", volume * 0.72);
+  };
+
+  const handleLightLampFromBar = () => {
+    if (!isInsideHall) return;
+    if (lampLit) {
+      const idx = lampOptions.findIndex((item) => item.id === selectedLamp);
+      const nextLamp = lampOptions[(idx + 1) % lampOptions.length].id;
+      setSelectedLamp(nextLamp);
+    }
+    handleLightLamp();
   };
 
   const handleOfferFlower = () => {
     if (!isInsideHall) return;
     setFlowerOffered(true);
     setFlowerSeq((s) => s + 1);
-    triggerAvatarAction("flower", 3200);
+    triggerAvatarAction("flower", 2400);
     recordOffering("flower");
+    soundManager.playSfx("flower", volume * 0.72);
+  };
+
+  const handleOfferFlowerFromBar = () => {
+    if (!isInsideHall) return;
+    if (flowerOffered) {
+      const idx = flowerOptions.findIndex((item) => item.id === selectedFlower);
+      const nextFlower = flowerOptions[(idx + 1) % flowerOptions.length].id;
+      setSelectedFlower(nextFlower);
+    }
+    handleOfferFlower();
   };
 
   const buddhistChantScripture =
@@ -318,19 +408,9 @@ export function BuddhistRealmPage() {
   const handleTapWoodfish = () => {
     if (!isInsideHall) return;
     setSessionWoodfish((c) => c + 1);
-    triggerAvatarAction("woodfish", 1800);
+    setWoodfishSeq((s) => s + 1);
+    triggerAvatarAction("woodfish", 1500);
     incrementWoodfish();
-  };
-
-  const handleSceneHotspot = (action: PractitionerAction) => {
-    if (!isInsideHall) return;
-    if (action === "flower") handleOfferFlower();
-    else if (action === "lifo") handleLifo();
-    else if (action === "incense") handleLightIncense(3);
-    else if (action === "lamp") handleLightLamp();
-    else if (action === "hezhang") handleHezhang();
-    else if (action === "woodfish") handleTapWoodfish();
-    else if (action === "chanting") handleToggleChanting();
   };
 
   const handleSaveWish = (e: FormEvent) => {
@@ -363,7 +443,7 @@ export function BuddhistRealmPage() {
       />
 
       {/* Breadcrumb + Ambient Audio Control */}
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2.5">
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -434,29 +514,29 @@ export function BuddhistRealmPage() {
         </div>
       </div>
 
-      <div className="animate-page-enter space-y-6">
+      <div className="animate-page-enter space-y-4">
         {/* Hall Selector Bar */}
-        <section className="rounded-2xl border border-[#e2d7c5] bg-[#fcf9f2] p-4 dark:border-[#332922] dark:bg-[#1d1815]">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <section className="rounded-2xl border border-[#e2d7c5] bg-[#fcf9f2] px-4 py-3 dark:border-[#332922] dark:bg-[#1d1815]">
+          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-xs font-medium text-[#922e25] dark:text-[#e5a89f]">
                 佛教梵境 · {isInsideHall ? "殿内礼敬空间" : "殿外正面瞻礼（先观外观，步入大殿后再行礼敬）"}
               </p>
-              <h1 className="font-serif-display text-xl font-bold text-[#2c221e] dark:text-[#efe7da]">
+              <h1 className="font-serif-display text-lg font-bold leading-snug text-[#2c221e] sm:text-xl dark:text-[#efe7da]">
                 {activeScene.sceneName}
               </h1>
             </div>
             <button
               type="button"
               onClick={() => navigate("/parks/buddhist")}
-              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-[#ebe2d2] px-3.5 py-2 text-xs font-semibold text-[#4c362a] hover:opacity-90 cursor-pointer dark:bg-[#2a221d] dark:text-[#dccbb6]"
+              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl bg-[#ebe2d2] px-3.5 py-1.5 text-xs font-semibold text-[#4c362a] hover:opacity-90 cursor-pointer dark:bg-[#2a221d] dark:text-[#dccbb6]"
             >
               <Compass size={14} />
               <span>寺院建筑档案</span>
             </button>
           </div>
 
-          <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
+          <div className="no-scrollbar flex gap-2 overflow-x-auto pb-0.5">
             {BUDDHIST_DISPLAY_SCENES.map((scene) => {
               const active = scene.sceneId === activeScene.sceneId;
               return (
@@ -465,7 +545,7 @@ export function BuddhistRealmPage() {
                   type="button"
                   aria-current={active ? "page" : undefined}
                   onClick={() => handleSelectHall(scene.sceneId)}
-                  className={`min-h-[42px] shrink-0 rounded-xl px-4 py-2 text-xs font-semibold whitespace-nowrap transition-all active:scale-[0.97] cursor-pointer ${
+                  className={`min-h-[40px] shrink-0 rounded-xl px-4 py-1.5 text-xs font-semibold whitespace-nowrap transition-all active:scale-[0.97] cursor-pointer ${
                     active
                       ? "bg-[#922e25] text-[#fff8eb] dark:bg-[#b5453a]"
                       : "bg-[#f6f1e7] text-[#4c362a] hover:bg-[#ebe2d2] dark:bg-[#241d19] dark:text-[#dccbb6]"
@@ -479,36 +559,48 @@ export function BuddhistRealmPage() {
         </section>
 
         {/* Active Hall Visual Stage (Exterior: Pure Grand Architecture; Interior: Interactive Stage) */}
-        <section className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
+        <section className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
           <div className="flex flex-col overflow-hidden rounded-2xl border border-[#e2d7c5] bg-[#2a1915] lg:col-span-7 dark:border-[#332922]">
-            <div className="relative min-h-[380px] w-full flex-1 sm:min-h-[440px] md:min-h-[500px]">
-              <SceneStageImage
-                scene={activeScene}
-                imageMode={isInsideHall ? "interior" : "exterior"}
-                className="h-full w-full object-cover"
-              />
-              <div
-                className={`pointer-events-none absolute inset-0 ${
-                  isInsideHall
-                    ? "bg-gradient-to-b from-black/62 via-transparent to-black/62"
-                    : "bg-gradient-to-b from-black/52 via-transparent to-black/75"
-                }`}
-              />
+            <SpatialViewport2D5
+              realm="buddhist"
+              spatialNode={spatialNode}
+              isInsideHall={isInsideHall}
+              transitionState={roamTransition}
+              onWalkToConnection={handleWalkToConnection}
+              onEnterInterior={activeScene.hasInterior ? handleEnterHall : undefined}
+              onExitInterior={isInsideHall ? handleExitHall : undefined}
+            >
+              <div className="relative min-h-[300px] w-full aspect-[4/3] sm:aspect-[16/10] lg:aspect-[16/9] overflow-hidden">
+                <div className="absolute inset-0">
+                  <SceneStageImage
+                    scene={activeScene}
+                    imageMode={isInsideHall ? "interior" : "exterior"}
+                    disableZoomMotion={isInsideHall}
+                    className="h-full w-full object-cover object-center"
+                  />
+                </div>
+                <div
+                  className={`pointer-events-none absolute inset-0 ${
+                    isInsideHall
+                      ? "bg-gradient-to-b from-black/38 via-transparent to-black/24"
+                      : "bg-gradient-to-b from-black/48 via-transparent to-black/75"
+                  }`}
+                />
 
-              {/* Subtle environmental mist only outside; full sacred aura & ritual overlays ONLY inside */}
-              <SacredEnvironmentLayer
-                variant="buddhist"
-                showLantern={isInsideHall}
-                showLotus={isInsideHall && activeScene.sceneId === "buddhist-pureland"}
-              />
+                {/* 殿外瞻仰保留环境氛围光影；所有佛殿进入殿内后统一保持净洁空间，绝无漂浮提示或遮挡气泡 */}
+                {!isInsideHall && (
+                  <SacredEnvironmentLayer
+                    variant="buddhist"
+                    showLantern={false}
+                    showLotus={false}
+                  />
+                )}
 
-              {isInsideHall && (
-                <>
-                  <BuddhistRitualStage
-                    hezhangSeq={hezhangSeq}
-                    hezhangActive={hezhangActive}
-                    lifoSeq={lifoSeq}
-                    lifoActive={lifoActive}
+                {isInsideHall && (
+                  <BuddhistHallStage
+                    scene={activeScene}
+                    selfAction={effectiveAction}
+                    peers={peers}
                     incenseLit={incenseLit}
                     incenseSeq={incenseSeq}
                     lampLit={lampLit}
@@ -517,81 +609,81 @@ export function BuddhistRealmPage() {
                     flowerOffered={flowerOffered}
                     flowerSeq={flowerSeq}
                     selectedFlower={selectedFlower}
+                    woodfishSeq={woodfishSeq}
                     chantingPlaying={chantingPlaying}
                   />
+                )}
 
-                  <HallInteractiveStageOverlay
-                    tradition="buddhist"
-                    selfAction={effectiveAction}
-                    peers={peers}
-                    canPublish={canPublish}
-                    totalInScene={totalInScene}
-                    onSelectHotspot={handleSceneHotspot}
-                  />
-                </>
-              )}
+                {/* 顶部安全渐变标题区（保证安全内边距与行高，适配手机/电脑且永不被裁切） */}
+                <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 bg-gradient-to-b from-black/72 via-black/30 to-transparent px-4 pt-4 pb-8 sm:px-5 sm:pt-4.5">
+                  <div className="min-w-0 flex-1 pr-2">
+                    <p className="truncate text-[11px] leading-normal font-medium tracking-wider text-[#e5c17c] drop-shadow">
+                      {activeScene.subtitle}
+                    </p>
+                    <h2 className="mt-0.5 pt-0.5 font-serif-display text-lg leading-[1.38] font-bold text-[#fff8eb] drop-shadow sm:text-xl md:text-2xl">
+                      {activeScene.sceneName}
+                    </h2>
+                  </div>
 
-              {/* Top-left Hall Title */}
-              <div className="pointer-events-none absolute top-4 left-4 z-20 max-w-[70%]">
-                <p className="text-[11px] font-medium tracking-wider text-[#e5c17c] drop-shadow">
-                  {activeScene.subtitle}
-                </p>
-                <h2 className="mt-0.5 font-serif-display text-xl font-bold text-[#fff8eb] drop-shadow md:text-2xl">
-                  {activeScene.sceneName}
-                </h2>
-              </div>
-
-              {/* Top-right Interior Exit Button when inside hall */}
-              {isInsideHall && (
-                <button
-                  type="button"
-                  onClick={handleExitHall}
-                  className="absolute top-4 right-4 z-20 inline-flex min-h-[36px] items-center gap-1.5 rounded-xl border border-[#e5c17c]/45 bg-[#1b120e]/80 px-3 py-1.5 text-[11px] font-semibold text-[#fff8eb] backdrop-blur-sm transition-colors hover:bg-[#2c1d16] cursor-pointer"
-                >
-                  <LogOut size={13} />
-                  <span>退至殿外</span>
-                </button>
-              )}
-
-              {/* Exterior Primary Entry CTA (Zero interactions shown on exterior!) */}
-              {!isInsideHall && (
-                <div className="absolute inset-x-0 bottom-5 z-20 flex flex-col items-center px-4 text-center">
-                  {activeScene.hasInterior ? (
+                  {isInsideHall && (
                     <button
                       type="button"
-                      onClick={handleEnterHall}
-                      className="inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-[#b88b44] px-7 py-3 text-sm font-bold text-[#1f1612] shadow-lg transition-all hover:opacity-95 active:scale-[0.97] cursor-pointer"
+                      onClick={handleExitHall}
+                      className="pointer-events-auto inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-xl border border-[#e5c17c]/45 bg-[#1b120e]/80 px-3 py-1.5 text-[11px] font-semibold text-[#fff8eb] backdrop-blur-sm transition-colors hover:bg-[#2c1d16] cursor-pointer"
                     >
-                      <DoorOpen size={17} />
-                      <span>步入{activeScene.sceneName}（进入大殿）</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleSelectHall(BUDDHIST_SCENES[0].sceneId)}
-                      className="inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-[#b88b44] px-7 py-3 text-sm font-bold text-[#1f1612] shadow-lg transition-all hover:opacity-95 active:scale-[0.97] cursor-pointer"
-                    >
-                      <span>前往主殿 · 大雄宝殿</span>
-                      <ArrowRight size={17} />
+                      <LogOut size={13} />
+                      <span>退至殿外</span>
                     </button>
                   )}
                 </div>
-              )}
-            </div>
+
+                {/* Exterior Primary Entry CTA (Zero interactions shown on exterior!) */}
+                {!isInsideHall && (
+                  <div className="absolute inset-x-0 bottom-5 z-20 flex flex-col items-center px-4 text-center">
+                    {activeScene.hasInterior ? (
+                      <button
+                        type="button"
+                        onClick={handleEnterHall}
+                        className="inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-[#b88b44] px-7 py-3 text-sm font-bold text-[#1f1612] shadow-lg transition-all hover:opacity-95 active:scale-[0.97] cursor-pointer"
+                      >
+                        <DoorOpen size={17} />
+                        <span>步入{activeScene.sceneName}（进入大殿）</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleSelectHall(BUDDHIST_SCENES[0].sceneId)}
+                        className="inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-[#b88b44] px-7 py-3 text-sm font-bold text-[#1f1612] shadow-lg transition-all hover:opacity-95 active:scale-[0.97] cursor-pointer"
+                      >
+                        <span>前往主殿 · 大雄宝殿</span>
+                        <ArrowRight size={17} />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </SpatialViewport2D5>
 
             {/* Instant Action Bar ONLY rendered inside hall interior */}
             {isInsideHall && (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#432d26] bg-[#1e1411] px-4 py-3 text-xs">
-                <span className="text-[11px] text-[#e5c17c]">
-                  我的动作：{ACTION_LABELS[effectiveAction]}
-                </span>
+              <div className="flex flex-wrap items-center justify-between gap-2.5 border-t border-[#432d26] bg-[#1e1411] px-4 py-3 text-xs">
+                <div className="flex items-center gap-2 text-[11px]">
+                  <span className="font-medium text-[#e5c17c]">
+                    {ACTION_LABELS[effectiveAction]}
+                  </span>
+                  {totalInScene > 1 && (
+                    <span className="text-[#c5b39c]/80 tabular-nums">
+                      · 同殿共修 {totalInScene} 人
+                    </span>
+                  )}
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {interactionConfig.enableWorship && (
                     <>
                       <button
                         type="button"
                         onClick={handleHezhang}
-                        className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all active:scale-95 cursor-pointer ${
+                        className={`min-h-[38px] rounded-lg px-3 py-1.5 text-xs font-semibold transition-all active:scale-95 cursor-pointer ${
                           effectiveAction === "hezhang"
                             ? "bg-[#b88b44] text-[#1f1612]"
                             : "bg-[#30201b] text-[#f5ece0] hover:bg-[#3f2b24]"
@@ -602,7 +694,7 @@ export function BuddhistRealmPage() {
                       <button
                         type="button"
                         onClick={handleLifo}
-                        className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all active:scale-95 cursor-pointer ${
+                        className={`min-h-[38px] rounded-lg px-3 py-1.5 text-xs font-semibold transition-all active:scale-95 cursor-pointer ${
                           effectiveAction === "lifo"
                             ? "bg-[#b88b44] text-[#1f1612]"
                             : "bg-[#30201b] text-[#f5ece0] hover:bg-[#3f2b24]"
@@ -615,11 +707,13 @@ export function BuddhistRealmPage() {
                   {interactionConfig.allowIncense && (
                     <button
                       type="button"
-                      onClick={() => handleLightIncense(3)}
-                      className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all active:scale-95 cursor-pointer ${
+                      onClick={handleLightIncenseFromBar}
+                      className={`min-h-[38px] rounded-lg px-3 py-1.5 text-xs font-semibold transition-all active:scale-95 cursor-pointer ${
                         effectiveAction === "incense"
                           ? "bg-[#b88b44] text-[#1f1612]"
-                          : "bg-[#30201b] text-[#f5ece0] hover:bg-[#3f2b24]"
+                          : incenseLit > 0
+                            ? "border border-[#b88b44]/60 bg-[#3a261f] text-[#fae4b8] hover:bg-[#493027]"
+                            : "bg-[#30201b] text-[#f5ece0] hover:bg-[#3f2b24]"
                       }`}
                     >
                       上香
@@ -628,11 +722,13 @@ export function BuddhistRealmPage() {
                   {interactionConfig.allowLamp && (
                     <button
                       type="button"
-                      onClick={handleLightLamp}
-                      className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all active:scale-95 cursor-pointer ${
+                      onClick={handleLightLampFromBar}
+                      className={`min-h-[38px] rounded-lg px-3 py-1.5 text-xs font-semibold transition-all active:scale-95 cursor-pointer ${
                         effectiveAction === "lamp"
                           ? "bg-[#b88b44] text-[#1f1612]"
-                          : "bg-[#30201b] text-[#f5ece0] hover:bg-[#3f2b24]"
+                          : lampLit
+                            ? "border border-[#b88b44]/60 bg-[#3a261f] text-[#fae4b8] hover:bg-[#493027]"
+                            : "bg-[#30201b] text-[#f5ece0] hover:bg-[#3f2b24]"
                       }`}
                     >
                       点灯
@@ -641,11 +737,13 @@ export function BuddhistRealmPage() {
                   {interactionConfig.allowFlower && (
                     <button
                       type="button"
-                      onClick={handleOfferFlower}
-                      className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all active:scale-95 cursor-pointer ${
+                      onClick={handleOfferFlowerFromBar}
+                      className={`min-h-[38px] rounded-lg px-3 py-1.5 text-xs font-semibold transition-all active:scale-95 cursor-pointer ${
                         effectiveAction === "flower"
                           ? "bg-[#b88b44] text-[#1f1612]"
-                          : "bg-[#30201b] text-[#f5ece0] hover:bg-[#3f2b24]"
+                          : flowerOffered
+                            ? "border border-[#b88b44]/60 bg-[#3a261f] text-[#fae4b8] hover:bg-[#493027]"
+                            : "bg-[#30201b] text-[#f5ece0] hover:bg-[#3f2b24]"
                       }`}
                     >
                       供花
@@ -655,7 +753,7 @@ export function BuddhistRealmPage() {
                     <button
                       type="button"
                       onClick={handleTapWoodfish}
-                      className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all active:scale-95 cursor-pointer ${
+                      className={`min-h-[38px] rounded-lg px-3 py-1.5 text-xs font-semibold transition-all active:scale-95 cursor-pointer ${
                         effectiveAction === "woodfish"
                           ? "bg-[#b88b44] text-[#1f1612]"
                           : "bg-[#30201b] text-[#f5ece0] hover:bg-[#3f2b24]"

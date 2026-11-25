@@ -28,10 +28,13 @@ import {
   type RetreatSceneConfig,
 } from "@/data/retreatScenes";
 import {
-  natureAudio,
+  RETREAT_MUSIC_LIBRARY,
   playBellByType,
+  soundManager,
   type NatureSoundType,
+  type RetreatMusicTrackId,
 } from "@/lib/audio";
+import { useAppState } from "@/context/AppContext";
 
 export type ImmersiveSessionProps = {
   scene: RetreatSceneConfig;
@@ -98,28 +101,64 @@ export function ImmersiveRetreatSession({
   const [phraseId, setPhraseId] = useState(initialPhraseId);
   const [quietUi, setQuietUi] = useState(false);
 
+  const { settings, updateSettings } = useAppState();
+  const [musicTrack, setMusicTrack] = useState<RetreatMusicTrackId>(
+    settings.musicTrackId,
+  );
   // Drift-free timer anchors
   const endTimeMsRef = useRef<number>(Date.now() + totalSeconds * 1000);
   const pausedRemainingRef = useRef<number>(totalSeconds);
   const recordedRef = useRef(false);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
 
-  // Start / synchronize WebAudio ambient sound (single-source lock!)
+  const religiousType =
+    scene.category === "buddhist"
+      ? "buddhist"
+      : scene.category === "daoist"
+        ? "daoist"
+        : "none";
+
+  // Start / synchronize unified 5-layer audio (single-source lock!)
   useEffect(() => {
-    if (completed || !isRunning || !soundEnabled || useCustomAudio) {
-      natureAudio.stop();
+    if (completed || !isRunning || !soundEnabled) {
+      soundManager.stopAllStreams();
       return;
     }
-    natureAudio.start(soundType, volume);
+
+    if (useCustomAudio && customAudioUrl) {
+      soundManager.stopAllStreams();
+      return;
+    }
+
+    soundManager.applySceneProfile(
+      {
+        ambient: soundType,
+        religious: religiousType,
+        music: musicTrack,
+      },
+      { startIfUnlocked: true },
+    );
+    soundManager.setAmbientOverrideVolume(volume);
+
     return () => {
-      natureAudio.stop();
+      soundManager.stopAllStreams();
     };
-  }, [completed, isRunning, soundEnabled, soundType, useCustomAudio, volume]);
+  }, [
+    completed,
+    isRunning,
+    soundEnabled,
+    soundType,
+    religiousType,
+    musicTrack,
+    useCustomAudio,
+    customAudioUrl,
+    volume,
+  ]);
 
   // Adjust volume live without restarting stream
   useEffect(() => {
     if (soundEnabled && !useCustomAudio) {
-      natureAudio.setVolume(volume);
+      soundManager.setAmbientOverrideVolume(volume);
     }
     if (audioElRef.current) {
       audioElRef.current.volume = soundEnabled ? volume : 0;
@@ -144,7 +183,7 @@ export function ImmersiveRetreatSession({
   // Cleanup everything on unmount
   useEffect(() => {
     return () => {
-      natureAudio.stop();
+      soundManager.stopAllStreams();
       if (audioElRef.current) {
         audioElRef.current.pause();
       }
@@ -177,7 +216,7 @@ export function ImmersiveRetreatSession({
       recordedRef.current = true;
       setIsRunning(false);
       setCompleted(true);
-      natureAudio.stop();
+      soundManager.stopAllStreams();
       if (audioElRef.current) audioElRef.current.pause();
 
       if (soundEnabled) {
@@ -303,7 +342,7 @@ export function ImmersiveRetreatSession({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            natureAudio.stop();
+            soundManager.stopAllStreams();
             onCloseSession();
           }}
           className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-black/45 px-3.5 py-2 text-xs font-semibold text-[#fff8eb] backdrop-blur-md hover:bg-black/65 cursor-pointer"
@@ -502,6 +541,31 @@ export function ImmersiveRetreatSession({
                   </button>
                 )}
               </div>
+
+              {!useCustomAudio && (
+                <div className="no-scrollbar mt-1 flex gap-1.5 overflow-x-auto border-t border-white/10 pt-2 pb-1">
+                  {RETREAT_MUSIC_LIBRARY.map((track) => {
+                    const active = musicTrack === track.id;
+                    return (
+                      <button
+                        key={track.id}
+                        type="button"
+                        onClick={() => {
+                          setMusicTrack(track.id);
+                          updateSettings({ musicTrackId: track.id });
+                        }}
+                        className={`min-h-[30px] shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-medium whitespace-nowrap cursor-pointer ${
+                          active
+                            ? "bg-[#b88b44] text-[#1f1612] font-semibold"
+                            : "bg-white/10 text-[#fff8eb]/80"
+                        }`}
+                      >
+                        {track.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-1 items-center gap-2.5">

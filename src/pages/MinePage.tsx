@@ -576,6 +576,34 @@ export function MinePage() {
               </div>
 
               <div>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-[#2c221e] dark:text-[#efe7da]">
+                      2.5D 空间漫游动态
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-[#6e5d4f] dark:text-[#b2a18f]">
+                      开启后切换殿堂与静修景观伴随柔和景深推进；关闭则保持画面静止切换
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateSettings({
+                        roamingMotionEnabled: !(settings.roamingMotionEnabled ?? true),
+                      })
+                    }
+                    className={`min-h-[36px] shrink-0 rounded-xl px-3.5 text-xs font-bold cursor-pointer ${
+                      (settings.roamingMotionEnabled ?? true)
+                        ? "bg-[#1f4e45] text-[#f3f8f5]"
+                        : "bg-[#ebe2d2] text-[#4c362a] dark:bg-[#2a221d] dark:text-[#dccbb6]"
+                    }`}
+                  >
+                    {(settings.roamingMotionEnabled ?? true) ? "已开启" : "已关闭"}
+                  </button>
+                </div>
+              </div>
+
+              <div>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs font-semibold text-[#2c221e] dark:text-[#efe7da]">

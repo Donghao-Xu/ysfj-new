@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { BottomNav } from "@/components/BottomNav";
+import { GlobalSoundControl } from "@/components/GlobalSoundControl";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
 
 const navItems = [
@@ -98,6 +99,7 @@ export function AppShell({
         </div>
       </div>
 
+      <GlobalSoundControl realmTone={realmTone} />
       <BottomNav forceActivePath={forceActivePath} />
     </div>
   );

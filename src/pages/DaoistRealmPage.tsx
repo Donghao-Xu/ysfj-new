@@ -27,15 +27,20 @@ import {
   SacredChantingAura,
 } from "@/components/SacredInteractions";
 import { SceneStageImage } from "@/components/SceneStageImage";
+import {
+  SpatialViewport2D5,
+  type RoamingTransitionState,
+} from "@/components/SpatialViewport2D5";
 import { useAppState } from "@/context/AppContext";
 import {
   DAOIST_MOUNTAIN_SCENE,
   DAOIST_SCENES,
   type SceneConfig,
 } from "@/data/scenes";
+import { getSpatialNode, type SpatialConnection } from "@/data/spatialGraph";
 import {
-  natureAudio,
   playJadeChimeSound,
+  soundManager,
   type NatureSoundType,
 } from "@/lib/audio";
 import {
@@ -79,10 +84,19 @@ export function DaoistRealmPage() {
   );
   const [wishText, setWishText] = useState("");
   const [wishNotice, setWishNotice] = useState("");
+  const [roamTransition, setRoamTransition] = useState<RoamingTransitionState>({
+    active: false,
+    kind: "push-in",
+    phase: "idle",
+  });
 
   const gongShouTimerRef = useRef<number | null>(null);
   const manualActionTimerRef = useRef<number | null>(null);
   const wishTimerRef = useRef<number | null>(null);
+  const roamTimerRef = useRef<number | null>(null);
+  const roamSettleTimerRef = useRef<number | null>(null);
+
+  const spatialNode = getSpatialNode(activeScene.sceneId);
 
   const effectiveAction: PractitionerAction =
     manualAction ?? (daoChanting ? "chanting" : "idle");
@@ -110,12 +124,16 @@ export function DaoistRealmPage() {
 
   useEffect(() => {
     return () => {
-      natureAudio.stop();
+      soundManager.stopAllStreams();
       if (gongShouTimerRef.current) window.clearTimeout(gongShouTimerRef.current);
       if (manualActionTimerRef.current) {
         window.clearTimeout(manualActionTimerRef.current);
       }
       if (wishTimerRef.current) window.clearTimeout(wishTimerRef.current);
+      if (roamTimerRef.current) window.clearTimeout(roamTimerRef.current);
+      if (roamSettleTimerRef.current) {
+        window.clearTimeout(roamSettleTimerRef.current);
+      }
     };
   }, []);
 
@@ -123,7 +141,14 @@ export function DaoistRealmPage() {
   useEffect(() => {
     if (activeSound) {
       const targetType = activeScene.audioConfig.natureType;
-      natureAudio.start(targetType, settings.defaultVolume * 0.7);
+      soundManager.applySceneProfile(
+        {
+          ambient: targetType,
+          religious: "daoist",
+        },
+        { startIfUnlocked: true },
+      );
+      soundManager.setAmbientOverrideVolume(settings.defaultVolume * 0.75);
       if (activeSound !== targetType) {
         setActiveSound(targetType);
       }
@@ -143,6 +168,30 @@ export function DaoistRealmPage() {
     setDaoChanting(false);
   };
 
+  const runSpatialSequence = (
+    kind: RoamingTransitionState["kind"],
+    label: string,
+    onMidpoint: () => void,
+    spatialCue: "gate-pass" | "hall-enter" | "hall-exit" = "gate-pass",
+  ) => {
+    if (roamTimerRef.current) window.clearTimeout(roamTimerRef.current);
+    if (roamSettleTimerRef.current) {
+      window.clearTimeout(roamSettleTimerRef.current);
+    }
+
+    soundManager.playSpatialCue("footstep", 3);
+    soundManager.playSpatialCue(spatialCue);
+
+    setRoamTransition({ active: true, kind, phase: "depart", label });
+    roamTimerRef.current = window.setTimeout(() => {
+      onMidpoint();
+      setRoamTransition({ active: true, kind, phase: "arrive" });
+      roamSettleTimerRef.current = window.setTimeout(() => {
+        setRoamTransition({ active: false, kind: "push-in", phase: "idle" });
+      }, 420);
+    }, 440);
+  };
+
   const selectScene = (nextSceneId: string) => {
     if (nextSceneId === activeScene.sceneId) return;
     resetHallRitualState();
@@ -154,29 +203,67 @@ export function DaoistRealmPage() {
     setTransitionSeq((s) => s + 1);
   };
 
+  const handleWalkToConnection = (conn: SpatialConnection) => {
+    runSpatialSequence(
+      conn.transitionType,
+      conn.label,
+      () => selectScene(conn.targetSceneId),
+      "gate-pass",
+    );
+  };
+
   const handleEnterHall = () => {
     if (!activeScene.hasInterior) return;
-    setEnteredHall(true);
-    setTransitionSeq((s) => s + 1);
-    playJadeChimeSound(settings.defaultVolume * 0.75);
+    runSpatialSequence(
+      "push-in",
+      `步入${activeScene.sceneName}`,
+      () => {
+        setEnteredHall(true);
+        setTransitionSeq((s) => s + 1);
+        playJadeChimeSound(settings.defaultVolume * 0.75);
+      },
+      "hall-enter",
+    );
   };
 
   const handleExitHall = () => {
-    resetHallRitualState();
-    setEnteredHall(false);
-    setTransitionSeq((s) => s + 1);
+    runSpatialSequence(
+      "pull-back",
+      "退至殿外正面",
+      () => {
+        resetHallRitualState();
+        setEnteredHall(false);
+        setTransitionSeq((s) => s + 1);
+      },
+      "hall-exit",
+    );
   };
 
   const handleSelectHall = (hallSceneId: string) => {
-    selectScene(hallSceneId);
+    if (hallSceneId === activeScene.sceneId) return;
+    const target = DAOIST_DISPLAY_SCENES.find((s) => s.sceneId === hallSceneId);
+    runSpatialSequence(
+      "push-in",
+      `前往${target?.sceneName || "宫观"}`,
+      () => selectScene(hallSceneId),
+      "gate-pass",
+    );
   };
 
   const toggleSound = (type: NatureSoundType) => {
     if (activeSound === type) {
-      natureAudio.stop();
+      soundManager.stopAllStreams();
       setActiveSound(null);
     } else {
-      natureAudio.start(type, settings.defaultVolume * 0.7);
+      soundManager.applySceneProfile(
+        {
+          ambient: type,
+          religious: "daoist",
+          music: settings.musicTrackId,
+        },
+        { startIfUnlocked: true },
+      );
+      soundManager.setAmbientOverrideVolume(settings.defaultVolume * 0.75);
       setActiveSound(type);
     }
   };
@@ -198,6 +285,7 @@ export function DaoistRealmPage() {
     if (!isInsideHall) return;
     setDaoIncenseActive(true);
     triggerAvatarAction("incense", 3200);
+    soundManager.playSfx("incense", settings.defaultVolume * 0.7);
   };
 
   const handleToggleDaoChanting = () => {
@@ -370,92 +458,105 @@ export function DaoistRealmPage() {
         {/* Active Daoist Hall Presentation */}
         <section className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
           <div className="flex flex-col overflow-hidden rounded-2xl border border-[#c7d6ce] bg-[#132622] lg:col-span-7 dark:border-[#243a34]">
-            <div className="relative min-h-[380px] w-full flex-1 sm:min-h-[440px] md:min-h-[500px]">
-              <SceneStageImage
-                scene={activeScene}
-                imageMode={isInsideHall ? "interior" : "exterior"}
-                className="h-full w-full object-cover"
-              />
-              <div
-                className={`pointer-events-none absolute inset-0 ${
-                  isInsideHall
-                    ? "bg-gradient-to-b from-[#091815]/65 via-transparent to-[#091815]/62"
-                    : "bg-gradient-to-b from-[#091815]/52 via-transparent to-[#091815]/76"
-                }`}
-              />
+            <SpatialViewport2D5
+              realm="daoist"
+              spatialNode={spatialNode}
+              isInsideHall={isInsideHall}
+              transitionState={roamTransition}
+              onWalkToConnection={handleWalkToConnection}
+              onEnterInterior={activeScene.hasInterior ? handleEnterHall : undefined}
+              onExitInterior={isInsideHall ? handleExitHall : undefined}
+            >
+              <div className="relative min-h-[380px] w-full flex-1 sm:min-h-[440px] md:min-h-[500px]">
+                <SceneStageImage
+                  scene={activeScene}
+                  imageMode={isInsideHall ? "interior" : "exterior"}
+                  disableZoomMotion={isInsideHall}
+                  className="h-full w-full object-cover"
+                />
+                <div
+                  className={`pointer-events-none absolute inset-0 ${
+                    isInsideHall
+                      ? "bg-gradient-to-b from-[#091815]/65 via-transparent to-[#091815]/62"
+                      : "bg-gradient-to-b from-[#091815]/52 via-transparent to-[#091815]/76"
+                  }`}
+                />
 
-              {/* Subtle mountain clouds outside; full palace lanterns + rituals + character ONLY inside */}
-              <SacredEnvironmentLayer
-                variant="daoist"
-                showLantern={isInsideHall}
-                showLotus={false}
-              />
+                {/* Subtle mountain clouds outside; full palace lanterns + rituals + character ONLY inside */}
+                <SacredEnvironmentLayer
+                  variant="daoist"
+                  showLantern={isInsideHall}
+                  showLotus={false}
+                />
 
-              {isInsideHall && (
-                <>
-                  <SacredChantingAura playing={daoChanting} tone="daoist" />
+                {isInsideHall && (
+                  <>
+                    <SacredChantingAura playing={daoChanting} tone="daoist" />
 
-                  <DaoistRitualStage
-                    gongShouSeq={gongShouSeq}
-                    gongShouActive={gongShouAck}
-                  />
+                    <DaoistRitualStage
+                      gongShouSeq={gongShouSeq}
+                      gongShouActive={gongShouAck}
+                    />
 
-                  <HallInteractiveStageOverlay
-                    tradition="daoist"
-                    selfAction={effectiveAction}
-                    peers={peers}
-                    canPublish={canPublish}
-                    totalInScene={totalInScene}
-                    onSelectHotspot={handleSceneHotspot}
-                  />
-                </>
-              )}
+                    <HallInteractiveStageOverlay
+                      tradition="daoist"
+                      selfAction={effectiveAction}
+                      peers={peers}
+                      canPublish={canPublish}
+                      totalInScene={totalInScene}
+                      onSelectHotspot={handleSceneHotspot}
+                    />
+                  </>
+                )}
 
-              <div className="pointer-events-none absolute top-4 left-4 z-20 max-w-[70%]">
-                <p className="text-[11px] font-medium tracking-wider text-[#b8ded1] drop-shadow">
-                  {activeScene.subtitle}
-                </p>
-                <h2 className="mt-0.5 font-serif-display text-xl font-bold text-[#f3f8f5] drop-shadow md:text-2xl">
-                  {activeScene.sceneName}
-                </h2>
-              </div>
+                <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 px-4 pt-4 pb-6">
+                  <div className="min-w-0 flex-1 pr-2">
+                    <p className="truncate text-[11px] font-medium tracking-wider text-[#b8ded1] drop-shadow">
+                      {activeScene.subtitle}
+                    </p>
+                    <h2 className="mt-0.5 font-serif-display text-xl leading-[1.35] font-bold text-[#f3f8f5] drop-shadow md:text-2xl">
+                      {activeScene.sceneName}
+                    </h2>
+                  </div>
 
-              {isInsideHall && (
-                <button
-                  type="button"
-                  onClick={handleExitHall}
-                  className="absolute top-4 right-4 z-20 inline-flex min-h-[36px] items-center gap-1.5 rounded-xl border border-[#b8ded1]/45 bg-[#0e1f1c]/80 px-3 py-1.5 text-[11px] font-semibold text-[#f3f8f5] backdrop-blur-sm transition-colors hover:bg-[#19342f] cursor-pointer"
-                >
-                  <LogOut size={13} />
-                  <span>退至殿外</span>
-                </button>
-              )}
-
-              {/* Exterior Primary Entry CTA (Zero interactions shown on exterior!) */}
-              {!isInsideHall && (
-                <div className="absolute inset-x-0 bottom-5 z-20 flex flex-col items-center px-4 text-center">
-                  {activeScene.hasInterior ? (
+                  {isInsideHall && (
                     <button
                       type="button"
-                      onClick={handleEnterHall}
-                      className="inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-[#b58d46] px-7 py-3 text-sm font-bold text-[#101c19] shadow-lg transition-all hover:opacity-95 active:scale-[0.97] cursor-pointer"
+                      onClick={handleExitHall}
+                      className="pointer-events-auto inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-xl border border-[#b8ded1]/45 bg-[#0e1f1c]/80 px-3 py-1.5 text-[11px] font-semibold text-[#f3f8f5] backdrop-blur-sm transition-colors hover:bg-[#19342f] cursor-pointer"
                     >
-                      <DoorOpen size={17} />
-                      <span>步入{activeScene.sceneName}（进入大殿）</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleSelectHall(DAOIST_SCENES[0].sceneId)}
-                      className="inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-[#b58d46] px-7 py-3 text-sm font-bold text-[#101c19] shadow-lg transition-all hover:opacity-95 active:scale-[0.97] cursor-pointer"
-                    >
-                      <span>前往主殿 · 三清殿</span>
-                      <ArrowRight size={17} />
+                      <LogOut size={13} />
+                      <span>退至殿外</span>
                     </button>
                   )}
                 </div>
-              )}
-            </div>
+
+                {/* Exterior Primary Entry CTA (Zero interactions shown on exterior!) */}
+                {!isInsideHall && (
+                  <div className="absolute inset-x-0 bottom-5 z-20 flex flex-col items-center px-4 text-center">
+                    {activeScene.hasInterior ? (
+                      <button
+                        type="button"
+                        onClick={handleEnterHall}
+                        className="inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-[#b58d46] px-7 py-3 text-sm font-bold text-[#101c19] shadow-lg transition-all hover:opacity-95 active:scale-[0.97] cursor-pointer"
+                      >
+                        <DoorOpen size={17} />
+                        <span>步入{activeScene.sceneName}（进入大殿）</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleSelectHall(DAOIST_SCENES[0].sceneId)}
+                        className="inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-[#b58d46] px-7 py-3 text-sm font-bold text-[#101c19] shadow-lg transition-all hover:opacity-95 active:scale-[0.97] cursor-pointer"
+                      >
+                        <span>前往主殿 · 三清殿</span>
+                        <ArrowRight size={17} />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </SpatialViewport2D5>
 
             {/* Instant Action Bar ONLY rendered inside hall interior */}
             {isInsideHall && (

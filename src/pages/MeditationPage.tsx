@@ -25,6 +25,10 @@ import {
 } from "@/components/RetreatInteractions";
 import { RetreatSceneAtmosphere } from "@/components/RetreatSceneAtmosphere";
 import { SacredEnvironmentLayer } from "@/components/SacredAtmosphere";
+import {
+  SpatialViewport2D5,
+  type RoamingTransitionState,
+} from "@/components/SpatialViewport2D5";
 import { useAppState } from "@/context/AppContext";
 import {
   type BreathModeId,
@@ -42,8 +46,13 @@ import {
   type RetreatSceneConfig,
 } from "@/data/retreatScenes";
 import {
-  natureAudio,
+  getSpatialNode,
+  type SpatialConnection,
+  type SpatialNode,
+} from "@/data/spatialGraph";
+import {
   playBellByType,
+  soundManager,
   type NatureSoundType,
 } from "@/lib/audio";
 
@@ -165,10 +174,76 @@ export function MeditationPage() {
 
   // Full-screen immersive session active flag
   const [inImmersiveSession, setInImmersiveSession] = useState<boolean>(false);
+  const [roamTransition, setRoamTransition] = useState<RoamingTransitionState>({
+    active: false,
+    kind: "push-in",
+    phase: "idle",
+  });
+  const roamTimerRef = useRef<number | null>(null);
+  const roamSettleTimerRef = useRef<number | null>(null);
+
+  const realmScenes = getRetreatScenesByRealm(activeScene.category);
+  const currentIdx = realmScenes.findIndex(
+    (s) => s.sceneId === activeScene.sceneId,
+  );
+  const prevSibling = currentIdx > 0 ? realmScenes[currentIdx - 1] : null;
+  const nextSibling =
+    currentIdx >= 0 && currentIdx < realmScenes.length - 1
+      ? realmScenes[currentIdx + 1]
+      : null;
+
+  const activeSpatialNode: SpatialNode = getSpatialNode(activeScene.sceneId) || {
+    sceneId: activeScene.sceneId,
+    realm: activeScene.category,
+    title: activeScene.sceneName,
+    subtitle: activeScene.subtitle,
+    coordinates: { x: currentIdx * 24, y: 0, z: currentIdx * 36 },
+    entrances: prevSibling ? [prevSibling.sceneId] : [],
+    exits: nextSibling ? [nextSibling.sceneId] : [],
+    connections: [
+      ...(prevSibling
+        ? [
+            {
+              targetSceneId: prevSibling.sceneId,
+              label: `退步回看 · ${prevSibling.sceneName}`,
+              direction: "back" as const,
+              transitionType: "pull-back" as const,
+            },
+          ]
+        : []),
+      ...(nextSibling
+        ? [
+            {
+              targetSceneId: nextSibling.sceneId,
+              label: `向前漫步 · ${nextSibling.sceneName}`,
+              direction: "forward" as const,
+              transitionType: "push-in" as const,
+            },
+          ]
+        : []),
+    ],
+    audioConfig: {
+      ambient: activeScene.audioConfig.defaultSound,
+      religious:
+        activeScene.category === "buddhist"
+          ? "buddhist"
+          : activeScene.category === "daoist"
+            ? "daoist"
+            : "none",
+      suggestedMusic: settings.musicTrackId,
+    },
+    visualConfig: {
+      horizonYPercent: 50,
+      parallaxStrength: 1.05,
+      foregroundFrame:
+        activeScene.category === "buddhist" ? "temple-eaves" : "mist-canopy",
+    },
+    transitionType: "push-in",
+  };
 
   // Update scene defaults cleanly when switching scenes (zero leftover state)
   const applySceneSelection = (scene: RetreatSceneConfig) => {
-    natureAudio.stop();
+    soundManager.stopAllStreams();
     setPreviewPlaying(false);
     setSelectedSceneId(scene.sceneId);
     setActiveRealm(scene.category);
@@ -179,13 +254,44 @@ export function MeditationPage() {
     setSearchParams({ realm: scene.category, scene: scene.sceneId });
   };
 
+  const handleWalkToConnection = (conn: SpatialConnection) => {
+    const nextScene = getRetreatSceneById(conn.targetSceneId);
+    if (!nextScene) return;
+    if (roamTimerRef.current) window.clearTimeout(roamTimerRef.current);
+    if (roamSettleTimerRef.current) {
+      window.clearTimeout(roamSettleTimerRef.current);
+    }
+
+    soundManager.playSpatialCue("footstep", 3);
+    soundManager.playSpatialCue("transition-glide");
+
+    setRoamTransition({
+      active: true,
+      kind: conn.transitionType,
+      phase: "depart",
+      label: conn.label,
+    });
+
+    roamTimerRef.current = window.setTimeout(() => {
+      applySceneSelection(nextScene);
+      setRoamTransition({
+        active: true,
+        kind: conn.transitionType,
+        phase: "arrive",
+      });
+      roamSettleTimerRef.current = window.setTimeout(() => {
+        setRoamTransition({ active: false, kind: "push-in", phase: "idle" });
+      }, 420);
+    }, 440);
+  };
+
   const enterRealm = (realm: RetreatRealmId) => {
     const first = getRetreatScenesByRealm(realm)[0];
     applySceneSelection(first);
   };
 
   const returnToRetreatHome = () => {
-    natureAudio.stop();
+    soundManager.stopAllStreams();
     setPreviewPlaying(false);
     setInImmersiveSession(false);
     setActiveRealm(null);
@@ -195,7 +301,11 @@ export function MeditationPage() {
   // Stop any sound preview when unmounting
   useEffect(() => {
     return () => {
-      natureAudio.stop();
+      soundManager.stopAllStreams();
+      if (roamTimerRef.current) window.clearTimeout(roamTimerRef.current);
+      if (roamSettleTimerRef.current) {
+        window.clearTimeout(roamSettleTimerRef.current);
+      }
       if (localObjectUrlRef.current) {
         URL.revokeObjectURL(localObjectUrlRef.current);
       }
@@ -204,19 +314,33 @@ export function MeditationPage() {
 
   const handleTogglePreviewSound = (targetType: NatureSoundType) => {
     if (previewPlaying && soundType === targetType) {
-      natureAudio.stop();
+      soundManager.stopAllStreams();
       setPreviewPlaying(false);
       return;
     }
     setSoundType(targetType);
-    natureAudio.start(targetType, soundEnabled ? volume : 0.05);
+    const religious =
+      activeScene.category === "buddhist"
+        ? "buddhist"
+        : activeScene.category === "daoist"
+          ? "daoist"
+          : "none";
+    soundManager.applySceneProfile(
+      {
+        ambient: targetType,
+        religious,
+        music: settings.musicTrackId,
+      },
+      { startIfUnlocked: true },
+    );
+    soundManager.setAmbientOverrideVolume(soundEnabled ? volume : 0.05);
     setPreviewPlaying(true);
   };
 
   const handleVolumeChange = (nextVol: number) => {
     setVolume(nextVol);
     if (previewPlaying) {
-      natureAudio.setVolume(soundEnabled ? nextVol : 0.01);
+      soundManager.setAmbientOverrideVolume(soundEnabled ? nextVol : 0.01);
     }
   };
 
@@ -243,7 +367,7 @@ export function MeditationPage() {
   };
 
   const handleStartImmersive = () => {
-    natureAudio.stop();
+    soundManager.stopAllStreams();
     setPreviewPlaying(false);
     if (soundEnabled) {
       playBellByType(activeScene.audioConfig.bellType, volume);
@@ -716,49 +840,56 @@ export function MeditationPage() {
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
             {/* Left 7 Cols: Scene Preview + Scene-Specific Interactive Practice */}
             <div className="space-y-5 lg:col-span-7">
-              <section className="relative overflow-hidden rounded-3xl border border-[#e2d7c5] bg-[#161c1d] dark:border-[#332922]">
-                <div className="relative h-72 sm:h-80 md:h-96">
-                  <ResilientImage
-                    src={activeScene.primaryImage}
-                    alt={activeScene.sceneName}
-                    tone={activeScene.category}
-                    fallbackTitle={activeScene.sceneName}
-                    fallbackGradient={activeScene.fallbackGradient}
-                    className="h-full w-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/84 via-black/30 to-transparent" />
-                  <RetreatSceneAtmosphere
-                    category={activeScene.category}
-                    effects={activeScene.animationConfig.effects}
-                    mistDensity={activeScene.animationConfig.mistDensity}
-                  />
+              <section className="overflow-hidden rounded-3xl border border-[#e2d7c5] bg-[#161c1d] dark:border-[#332922]">
+                <SpatialViewport2D5
+                  realm={activeScene.category}
+                  spatialNode={activeSpatialNode}
+                  transitionState={roamTransition}
+                  onWalkToConnection={handleWalkToConnection}
+                >
+                  <div className="relative h-72 sm:h-80 md:h-96">
+                    <ResilientImage
+                      src={activeScene.primaryImage}
+                      alt={activeScene.sceneName}
+                      tone={activeScene.category}
+                      fallbackTitle={activeScene.sceneName}
+                      fallbackGradient={activeScene.fallbackGradient}
+                      className="h-full w-full object-cover"
+                    />
+                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/84 via-black/30 to-transparent" />
+                    <RetreatSceneAtmosphere
+                      category={activeScene.category}
+                      effects={activeScene.animationConfig.effects}
+                      mistDensity={activeScene.animationConfig.mistDensity}
+                    />
 
-                  <div className="absolute inset-x-0 bottom-0 p-6">
-                    <p className="text-xs font-medium tracking-wider text-[#e5c17c]">
-                      {activeScene.categoryLabel} · {activeScene.subtitle}
-                    </p>
-                    <h2 className="mt-1 font-serif-display text-2xl font-bold text-[#fff8eb] md:text-3xl">
-                      {activeScene.sceneName}
-                    </h2>
-                    <p className="mt-2 max-w-2xl text-xs leading-relaxed text-[#f5ece0]/90 sm:text-sm">
-                      {activeScene.description}
-                    </p>
+                    <div className="absolute inset-x-0 bottom-0 p-6">
+                      <p className="text-xs font-medium tracking-wider text-[#e5c17c]">
+                        {activeScene.categoryLabel} · {activeScene.subtitle}
+                      </p>
+                      <h2 className="mt-1 font-serif-display text-2xl font-bold text-[#fff8eb] md:text-3xl">
+                        {activeScene.sceneName}
+                      </h2>
+                      <p className="mt-2 max-w-2xl text-xs leading-relaxed text-[#f5ece0]/90 sm:text-sm">
+                        {activeScene.description}
+                      </p>
 
-                    <div className="mt-4 flex flex-wrap items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={handleStartImmersive}
-                        className="inline-flex min-h-[46px] items-center gap-2 rounded-xl bg-[#922e25] px-6 py-2.5 text-sm font-bold text-[#fff8eb] shadow-md transition-transform hover:opacity-95 active:scale-[0.98] cursor-pointer"
-                      >
-                        <Play size={16} />
-                        <span>开始沉浸静修（{durationMinutes} 分钟）</span>
-                      </button>
-                      <span className="text-xs text-[#f5ece0]/75">
-                        全屏无打扰 · 结束音：{RETREAT_BELL_LABELS[activeScene.audioConfig.bellType]}
-                      </span>
+                      <div className="mt-4 flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={handleStartImmersive}
+                          className="inline-flex min-h-[46px] items-center gap-2 rounded-xl bg-[#922e25] px-6 py-2.5 text-sm font-bold text-[#fff8eb] shadow-md transition-transform hover:opacity-95 active:scale-[0.98] cursor-pointer"
+                        >
+                          <Play size={16} />
+                          <span>开始沉浸静修（{durationMinutes} 分钟）</span>
+                        </button>
+                        <span className="text-xs text-[#f5ece0]/75">
+                          全屏无打扰 · 结束音：{RETREAT_BELL_LABELS[activeScene.audioConfig.bellType]}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                </SpatialViewport2D5>
               </section>
 
               {/* Scene Cultural Context & Special Scene Modes */}
@@ -935,7 +1066,7 @@ export function MeditationPage() {
                       const next = !soundEnabled;
                       setSoundEnabled(next);
                       if (!next && previewPlaying) {
-                        natureAudio.stop();
+                        soundManager.stopAllStreams();
                         setPreviewPlaying(false);
                       }
                     }}

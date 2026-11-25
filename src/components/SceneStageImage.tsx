@@ -11,10 +11,12 @@ export function SceneStageImage({
   scene,
   imageMode = "interior",
   className = "h-full w-full object-cover",
+  disableZoomMotion = false,
 }: {
   scene: SceneConfig;
   imageMode?: "exterior" | "interior";
   className?: string;
+  disableZoomMotion?: boolean;
 }) {
   const targetSrc =
     imageMode === "exterior" ? scene.exteriorImage : scene.mainImage;
@@ -126,7 +128,9 @@ export function SceneStageImage({
             if (isFadingIn) setIsFadingIn(false);
           }}
           onError={handleImageError}
-          className={`${className} animate-camera-push transition-opacity duration-500 ${
+          className={`${className} ${
+            disableZoomMotion ? "" : "animate-camera-push "
+          }transition-opacity duration-500 ${
             isFadingIn ? "opacity-80" : "opacity-100"
           }`}
         />

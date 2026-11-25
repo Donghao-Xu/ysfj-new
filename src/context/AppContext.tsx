@@ -45,6 +45,13 @@ import {
 } from "@/data/parks";
 import { additionalPublicScriptures } from "@/data/v2Content";
 import {
+  DEFAULT_SOUND_MIXER_STATE,
+  soundManager,
+  type RetreatMusicTrackId,
+  type SoundLayerConfig,
+  type SoundLayerKey,
+} from "@/lib/audio";
+import {
   ADMIN_EMAIL,
   auth,
   db,
@@ -89,6 +96,11 @@ export type AppSettings = {
   animationMode: "full" | "reduced" | "off";
   recordRetreatLogs: boolean;
   defaultRetreatMinutes: number;
+  masterMuted: boolean;
+  soundLayers: Record<SoundLayerKey, SoundLayerConfig>;
+  musicTrackId: RetreatMusicTrackId;
+  roamingMode: "auto" | "free";
+  roamingMotionEnabled: boolean;
 };
 
 export type OfferingsCount = {
@@ -150,12 +162,24 @@ function loadLocalState(): LocalState {
       animationMode: "full",
       recordRetreatLogs: true,
       defaultRetreatMinutes: 15,
+      masterMuted: DEFAULT_SOUND_MIXER_STATE.masterMuted,
+      soundLayers: {
+        ambient: { ...DEFAULT_SOUND_MIXER_STATE.layers.ambient },
+        religious: { ...DEFAULT_SOUND_MIXER_STATE.layers.religious },
+        music: { ...DEFAULT_SOUND_MIXER_STATE.layers.music },
+        sfx: { ...DEFAULT_SOUND_MIXER_STATE.layers.sfx },
+        spatial: { ...DEFAULT_SOUND_MIXER_STATE.layers.spatial },
+      },
+      musicTrackId: DEFAULT_SOUND_MIXER_STATE.musicTrackId,
+      roamingMode: "auto",
+      roamingMotionEnabled: true,
     },
   };
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<LocalState>;
+      const parsedSettings = (parsed.settings || {}) as Partial<AppSettings>;
       return {
         ...fallback,
         ...parsed,
@@ -165,7 +189,29 @@ function loadLocalState(): LocalState {
         },
         settings: {
           ...fallback.settings,
-          ...(parsed.settings || {}),
+          ...parsedSettings,
+          soundLayers: {
+            ambient: {
+              ...fallback.settings.soundLayers.ambient,
+              ...(parsedSettings.soundLayers?.ambient || {}),
+            },
+            religious: {
+              ...fallback.settings.soundLayers.religious,
+              ...(parsedSettings.soundLayers?.religious || {}),
+            },
+            music: {
+              ...fallback.settings.soundLayers.music,
+              ...(parsedSettings.soundLayers?.music || {}),
+            },
+            sfx: {
+              ...fallback.settings.soundLayers.sfx,
+              ...(parsedSettings.soundLayers?.sfx || {}),
+            },
+            spatial: {
+              ...fallback.settings.soundLayers.spatial,
+              ...(parsedSettings.soundLayers?.spatial || {}),
+            },
+          },
         },
         readingProgress: parsed.readingProgress || {},
         wishes: Array.isArray(parsed.wishes) ? parsed.wishes : [],
@@ -333,6 +379,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         localState.settings.animationMode || "full",
       );
     }
+    soundManager.syncMixerState({
+      masterMuted: localState.settings.masterMuted,
+      layers: localState.settings.soundLayers,
+      musicTrackId: localState.settings.musicTrackId,
+    });
   }, [localState]);
 
   // Persist content cache for offline PWA

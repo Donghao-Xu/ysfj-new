@@ -1039,6 +1039,22 @@ body {
   animation: retreatBeadPop 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+@keyframes spatialWalkBob {
+  0%, 100% {
+    margin-top: 0;
+  }
+  25% {
+    margin-top: -1.5px;
+  }
+  75% {
+    margin-top: 1px;
+  }
+}
+
+.animate-spatial-walk-bob {
+  animation: spatialWalkBob 0.52s ease-in-out infinite;
+}
+
 /* 简化动画模式：保留页面淡入与主动交互反馈，关闭背景循环飘动与粒子 */
 html[data-motion="reduced"] .animate-cloud-slow,
 html[data-motion="reduced"] .animate-cloud-reverse,
@@ -1050,7 +1066,8 @@ html[data-motion="reduced"] .animate-camera-push,
 html[data-motion="reduced"] .animate-retreat-rain,
 html[data-motion="reduced"] .animate-retreat-star,
 html[data-motion="reduced"] .animate-retreat-taiji,
-html[data-motion="reduced"] .animate-retreat-bamboo {
+html[data-motion="reduced"] .animate-retreat-bamboo,
+html[data-motion="reduced"] .animate-spatial-walk-bob {
   animation: none !important;
 }
 
@@ -1074,7 +1091,8 @@ html[data-motion="off"] *::after {
   .animate-retreat-rain,
   .animate-retreat-star,
   .animate-retreat-taiji,
-  .animate-retreat-bamboo {
+  .animate-retreat-bamboo,
+  .animate-spatial-walk-bob {
     animation: none !important;
   }
 }

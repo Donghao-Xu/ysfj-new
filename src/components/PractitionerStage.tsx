@@ -61,12 +61,18 @@ export function PractitionerFigure({
   isSelf = false,
   label,
   onClick,
+  hideLabel = false,
+  hideStageProps = false,
+  sizeClass,
 }: {
   tradition: "buddhist" | "daoist";
   action: PractitionerAction;
   isSelf?: boolean;
   label: string;
   onClick?: () => void;
+  hideLabel?: boolean;
+  hideStageProps?: boolean;
+  sizeClass?: string;
 }) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const isDao = tradition === "daoist";
@@ -123,25 +129,29 @@ export function PractitionerFigure({
       }`}
       aria-label={`${label} · ${ACTION_LABELS[action]}`}
     >
-      {/* 角色上方静谧状态文字（无聊天入口） */}
-      <span
-        className={`mb-1 rounded-md px-2 py-0.5 text-[10px] font-medium tracking-wide whitespace-nowrap backdrop-blur-xs transition-transform group-hover:scale-105 ${
-          isSelf
-            ? isDao
-              ? "border border-[#b8ded1]/45 bg-[#0b1f1b]/80 text-[#e8f6f0]"
-              : "border border-[#e5c17c]/55 bg-[#1b120e]/80 text-[#fae4b8]"
-            : "border border-white/15 bg-black/55 text-[#efe8dc]/90"
-        }`}
-      >
-        {label} · {ACTION_LABELS[action]}
-      </span>
+      {/* 角色上方静谧状态文字（大雄宝殿可通过 hideLabel 隐藏全部悬浮标签） */}
+      {!hideLabel && (
+        <span
+          className={`mb-1 rounded-md px-2 py-0.5 text-[10px] font-medium tracking-wide whitespace-nowrap backdrop-blur-xs transition-transform group-hover:scale-105 ${
+            isSelf
+              ? isDao
+                ? "border border-[#b8ded1]/45 bg-[#0b1f1b]/80 text-[#e8f6f0]"
+                : "border border-[#e5c17c]/55 bg-[#1b120e]/80 text-[#fae4b8]"
+              : "border border-white/15 bg-black/55 text-[#efe8dc]/90"
+          }`}
+        >
+          {label} · {ACTION_LABELS[action]}
+        </span>
+      )}
 
       <svg
         viewBox="0 0 120 212"
         className={`${
-          isSelf
-            ? "h-40 w-24 sm:h-48 sm:w-28 md:h-52 md:w-30"
-            : "h-32 w-20 sm:h-36 sm:w-22 opacity-92"
+          sizeClass
+            ? sizeClass
+            : isSelf
+              ? "h-40 w-24 sm:h-48 sm:w-28 md:h-52 md:w-30"
+              : "h-32 w-20 sm:h-36 sm:w-22 opacity-92"
         } overflow-visible drop-shadow-[0_8px_14px_rgba(0,0,0,0.6)]`}
       >
         <defs>
@@ -168,8 +178,8 @@ export function PractitionerFigure({
           fill={`url(#${shadowGradId})`}
         />
 
-        {/* 前方佛光 / 灯火暖晕（来自面前的佛前灯烛） */}
-        {action === "lamp" && (
+        {/* 前方佛光 / 灯火暖晕（来自面前的佛前灯烛；若场景已摆放供桌灯盏则隐藏重复灯台） */}
+        {action === "lamp" && !hideStageProps && (
           <g>
             {/* 前方灯台：位于人物前方偏右，面向殿内 */}
             <path d="M84 114 L92 114 L90 192 L86 192 Z" fill="#5e432a" />
@@ -332,22 +342,26 @@ export function PractitionerFigure({
 
               {action === "woodfish" ? (
                 <>
-                  {/* 身前右侧木鱼（露出侧面轮廓于右前方） */}
-                  <ellipse
-                    cx="92"
-                    cy="176"
-                    rx="11"
-                    ry="8"
-                    fill="#9e632b"
-                    stroke="#4a280e"
-                    strokeWidth="1.2"
-                  />
-                  <path
-                    d="M84 176 Q92 179 100 176"
-                    stroke="#3a1e09"
-                    strokeWidth="1.6"
-                    fill="none"
-                  />
+                  {/* 身前右侧木鱼（若场景地面已有木鱼则不重复绘制） */}
+                  {!hideStageProps && (
+                    <>
+                      <ellipse
+                        cx="92"
+                        cy="176"
+                        rx="11"
+                        ry="8"
+                        fill="#9e632b"
+                        stroke="#4a280e"
+                        strokeWidth="1.2"
+                      />
+                      <path
+                        d="M84 176 Q92 179 100 176"
+                        stroke="#3a1e09"
+                        strokeWidth="1.6"
+                        fill="none"
+                      />
+                    </>
+                  )}
                   {/* 右手执槌轻敲（背面微动） */}
                   <g className="animate-avatar-woodfish">
                     <path
@@ -724,17 +738,12 @@ export function HallInteractiveStageOverlay({
     left: string;
     top: string;
   }[] =
-    tradition === "buddhist"
+    tradition === "daoist"
       ? [
-          { action: "flower", label: "点此供花", left: "21%", top: "40%" },
-          { action: "lifo", label: "点此礼佛", left: "44%", top: "46%" },
-          { action: "incense", label: "点此上香", left: "58%", top: "39%" },
-          { action: "lamp", label: "点此点灯", left: "78%", top: "41%" },
-        ]
-      : [
           { action: "gongshou", label: "行拱手礼", left: "44%", top: "44%" },
           { action: "incense", label: "清香静思", left: "64%", top: "40%" },
-        ];
+        ]
+      : [];
 
   return (
     <>
