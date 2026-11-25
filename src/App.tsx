@@ -3,14 +3,18 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppProvider } from "@/context/AppContext";
 import { AdminPage } from "@/pages/AdminPage";
 import { AuthPage } from "@/pages/AuthPage";
+import { BuddhistRealmPage } from "@/pages/BuddhistRealmPage";
 import { BuildingDetailPage } from "@/pages/BuildingDetailPage";
-import { ChantingPage } from "@/pages/ChantingPage";
 import { ClassicsPage } from "@/pages/ClassicsPage";
 import { CommunityPage } from "@/pages/CommunityPage";
+import { DaoistRealmPage } from "@/pages/DaoistRealmPage";
 import { HomePage } from "@/pages/HomePage";
+import { MeditationPage } from "@/pages/MeditationPage";
 import { MinePage } from "@/pages/MinePage";
 import { ParkHomePage } from "@/pages/ParkHomePage";
+import { PilgrimagePage } from "@/pages/PilgrimagePage";
 import { PlaceDetailPage } from "@/pages/PlaceDetailPage";
+import { WorldsPage } from "@/pages/WorldsPage";
 
 export function App() {
   return (
@@ -19,8 +23,13 @@ export function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<HomePage />} />
+            <Route path="/worlds" element={<WorldsPage />} />
+            <Route path="/worlds/buddhist" element={<BuddhistRealmPage />} />
+            <Route path="/worlds/daoist" element={<DaoistRealmPage />} />
             <Route path="/classics" element={<ClassicsPage />} />
-            <Route path="/chanting" element={<ChantingPage />} />
+            <Route path="/meditation" element={<MeditationPage />} />
+            <Route path="/chanting" element={<MeditationPage />} />
+            <Route path="/pilgrimage" element={<PilgrimagePage />} />
             <Route path="/community" element={<CommunityPage />} />
             <Route path="/mine" element={<MinePage />} />
             <Route path="/admin" element={<AdminPage />} />

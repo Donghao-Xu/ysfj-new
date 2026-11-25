@@ -374,6 +374,63 @@
         "audioUrl",
         "updatedAt"
       ]
+    },
+    "ScenePresence": {
+      "title": "ScenePresence",
+      "description": "Silent real-time co-presence state of a practitioner in a hall. Contains no chat or messaging fields.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "alias": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "sceneId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9\\-]+$"
+        },
+        "religionType": {
+          "type": "string",
+          "enum": ["buddhist", "daoist"]
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "hezhang",
+            "lifo",
+            "incense",
+            "lamp",
+            "flower",
+            "woodfish",
+            "chanting",
+            "gongshou"
+          ]
+        },
+        "slotIndex": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "alias",
+        "sceneId",
+        "religionType",
+        "action",
+        "slotIndex",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -408,6 +465,10 @@
     "/chantingTracks/{trackId}": {
       "schema": { "$ref": "#/entities/ChantingTrack" },
       "description": "Chanting audio tracks (public read, admin write)."
+    },
+    "/scenePresence/{userId}": {
+      "schema": { "$ref": "#/entities/ScenePresence" },
+      "description": "Live silent co-presence of verified users inside Buddhist/Daoist scenes (no chat fields allowed)."
     }
   }
 }

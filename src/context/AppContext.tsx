@@ -43,6 +43,7 @@ import {
   type ParkSlug,
   type Scripture,
 } from "@/data/parks";
+import { additionalPublicScriptures } from "@/data/v2Content";
 import {
   ADMIN_EMAIL,
   auth,
@@ -71,7 +72,30 @@ export type ChantingLogItem = {
   minutes: number;
   scriptureId: string;
   scriptureTitle: string;
+  category?: "buddhist" | "daoist" | "nature" | "chanting";
   createdAtMs: number;
+};
+
+export type PersonalWish = {
+  id: string;
+  realm: "buddhist" | "daoist" | "general";
+  text: string;
+  createdAtMs: number;
+};
+
+export type AppSettings = {
+  defaultVolume: number;
+  themeMode: "light" | "dark";
+  animationMode: "full" | "reduced" | "off";
+  recordRetreatLogs: boolean;
+  defaultRetreatMinutes: number;
+};
+
+export type OfferingsCount = {
+  bow: number;
+  incense: number;
+  lamp: number;
+  flower: number;
 };
 
 type LocalState = {
@@ -81,26 +105,79 @@ type LocalState = {
   totalChantingMinutes: number;
   chantingSessionsCount: number;
   chantingLogs: ChantingLogItem[];
+  readingProgress: Record<string, number>;
+  wishes: PersonalWish[];
+  woodfishTotal: number;
+  offeringsCount: OfferingsCount;
+  pilgrimageVisited: string[];
+  settings: AppSettings;
 };
 
 const LOCAL_STORAGE_KEY = "ysfj_local_practice_v2";
 const CONTENT_CACHE_KEY = "ysfj_content_cache_v2";
 
+const defaultV2Scriptures: Scripture[] = [
+  ...defaultScriptures,
+  ...additionalPublicScriptures.filter(
+    (extra) => !defaultScriptures.some((d) => d.id === extra.id),
+  ),
+];
+
+function mergeWithAdditionalScriptures(list: Scripture[]): Scripture[] {
+  const existingIds = new Set(list.map((s) => s.id));
+  return [
+    ...list,
+    ...additionalPublicScriptures.filter((extra) => !existingIds.has(extra.id)),
+  ];
+}
+
 function loadLocalState(): LocalState {
-  try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as LocalState;
-  } catch {
-    // ignore storage errors
-  }
-  return {
+  const fallback: LocalState = {
     joinedGatherings: [],
     favoriteScriptures: [],
     visitedBuildings: [],
     totalChantingMinutes: 0,
     chantingSessionsCount: 0,
     chantingLogs: [],
+    readingProgress: {},
+    wishes: [],
+    woodfishTotal: 0,
+    offeringsCount: { bow: 0, incense: 0, lamp: 0, flower: 0 },
+    pilgrimageVisited: [],
+    settings: {
+      defaultVolume: 0.75,
+      themeMode: "light",
+      animationMode: "full",
+      recordRetreatLogs: true,
+      defaultRetreatMinutes: 15,
+    },
   };
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<LocalState>;
+      return {
+        ...fallback,
+        ...parsed,
+        offeringsCount: {
+          ...fallback.offeringsCount,
+          ...(parsed.offeringsCount || {}),
+        },
+        settings: {
+          ...fallback.settings,
+          ...(parsed.settings || {}),
+        },
+        readingProgress: parsed.readingProgress || {},
+        wishes: Array.isArray(parsed.wishes) ? parsed.wishes : [],
+        pilgrimageVisited: Array.isArray(parsed.pilgrimageVisited)
+          ? parsed.pilgrimageVisited
+          : [],
+      };
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return fallback;
 }
 
 type ContentBundle = {
@@ -120,7 +197,9 @@ function loadCachedContent(): ContentBundle {
         return {
           parks: { ...defaultParks, ...parsed.parks },
           buildings: parsed.buildings.length ? parsed.buildings : defaultBuildings,
-          scriptures: parsed.scriptures.length ? parsed.scriptures : defaultScriptures,
+          scriptures: parsed.scriptures.length
+            ? mergeWithAdditionalScriptures(parsed.scriptures)
+            : defaultV2Scriptures,
           gatherings: parsed.gatherings.length ? parsed.gatherings : defaultGatherings,
           chantingTracks: Array.isArray(parsed.chantingTracks)
             ? parsed.chantingTracks
@@ -134,7 +213,7 @@ function loadCachedContent(): ContentBundle {
   return {
     parks: defaultParks,
     buildings: defaultBuildings,
-    scriptures: defaultScriptures,
+    scriptures: defaultV2Scriptures,
     gatherings: defaultGatherings,
     chantingTracks: [],
   };
@@ -181,6 +260,7 @@ type AppContextValue = {
     minutes: number,
     scriptureId: string,
     scriptureTitle: string,
+    options?: { category?: ChantingLogItem["category"] },
   ) => Promise<void>;
   reloadCloudContent: () => Promise<void>;
   seedDefaultContentToCloud: () => Promise<void>;
@@ -193,6 +273,19 @@ type AppContextValue = {
   saveParkIntro: (slug: ParkSlug, introduction: string) => Promise<void>;
   saveChantingTrack: (track: ChantingTrack) => Promise<void>;
   deleteChantingTrack: (id: string) => Promise<void>;
+  readingProgress: Record<string, number>;
+  wishes: PersonalWish[];
+  woodfishTotal: number;
+  offeringsCount: OfferingsCount;
+  pilgrimageVisited: string[];
+  settings: AppSettings;
+  updateReadingProgress: (scriptureId: string, percent: number) => void;
+  addPersonalWish: (realm: PersonalWish["realm"], text: string) => void;
+  deletePersonalWish: (id: string) => void;
+  incrementWoodfish: () => void;
+  recordOffering: (kind: keyof OfferingsCount) => void;
+  togglePilgrimageVisited: (siteId: string) => void;
+  updateSettings: (partial: Partial<AppSettings>) => void;
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -223,12 +316,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  // Persist local fallback state
+  // Persist local fallback state & sync theme class
   useEffect(() => {
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(localState));
     } catch {
       // ignore storage errors
+    }
+    if (typeof document !== "undefined") {
+      document.documentElement.classList.toggle(
+        "dark",
+        localState.settings.themeMode === "dark",
+      );
+      document.documentElement.setAttribute(
+        "data-motion",
+        localState.settings.animationMode || "full",
+      );
     }
   }, [localState]);
 
@@ -279,8 +382,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         : buildingsSnap.docs.map((d) => d.data() as ParkBuilding);
 
       const nextScriptures: Scripture[] = scripturesSnap.empty
-        ? defaultScriptures
-        : scripturesSnap.docs.map((d) => d.data() as Scripture);
+        ? defaultV2Scriptures
+        : mergeWithAdditionalScriptures(
+            scripturesSnap.docs.map((d) => d.data() as Scripture),
+          );
 
       const nextGatherings: Gathering[] = gatheringsSnap.empty
         ? defaultGatherings
@@ -411,11 +516,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const logs: ChantingLogItem[] = logsSnap.docs.map((d) => {
           const item = d.data();
           const ts = item.createdAt?.toMillis ? item.createdAt.toMillis() : Date.now();
+          const sid = String(item.scriptureId || "heart");
+          const derivedCategory: ChantingLogItem["category"] = sid.startsWith(
+            "retreat-buddhist-",
+          )
+            ? "buddhist"
+            : sid.startsWith("retreat-daoist-")
+              ? "daoist"
+              : sid.startsWith("retreat-nature-")
+                ? "nature"
+                : "chanting";
           return {
             id: d.id,
             minutes: Number(item.minutes) || 0,
-            scriptureId: String(item.scriptureId || "heart"),
+            scriptureId: sid,
             scriptureTitle: String(item.scriptureTitle || "静心诵读"),
+            category: derivedCategory,
             createdAtMs: ts,
           };
         });
@@ -610,17 +726,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     minutes: number,
     scriptureId: string,
     scriptureTitle: string,
+    options?: { category?: ChantingLogItem["category"] },
   ) => {
+    if (localState.settings.recordRetreatLogs === false) {
+      return;
+    }
     const safeMinutes = Math.max(1, Math.min(180, Math.round(minutes)));
     const safeScriptureId = (scriptureId || "heart").slice(0, 80);
     const safeScriptureTitle = (scriptureTitle || "静心诵读").slice(0, 100);
     const logId = `log_${Date.now()}`;
+    const inferredCategory: ChantingLogItem["category"] =
+      options?.category ||
+      (safeScriptureId.startsWith("retreat-buddhist-")
+        ? "buddhist"
+        : safeScriptureId.startsWith("retreat-daoist-")
+          ? "daoist"
+          : safeScriptureId.startsWith("retreat-nature-")
+            ? "nature"
+            : "chanting");
 
     const newLog: ChantingLogItem = {
       id: logId,
       minutes: safeMinutes,
       scriptureId: safeScriptureId,
       scriptureTitle: safeScriptureTitle,
+      category: inferredCategory,
       createdAtMs: Date.now(),
     };
 
@@ -631,7 +761,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ...prev,
       totalChantingMinutes: nextTotalMinutes,
       chantingSessionsCount: nextCount,
-      chantingLogs: [newLog, ...prev.chantingLogs].slice(0, 20),
+      chantingLogs: [newLog, ...prev.chantingLogs].slice(0, 30),
     }));
 
     if (profile && authUser?.emailVerified) {
@@ -939,6 +1069,84 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [content.buildings],
   );
 
+  const updateReadingProgress = useCallback(
+    (scriptureId: string, percent: number) => {
+      const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+      setLocalState((prev) => ({
+        ...prev,
+        readingProgress: {
+          ...prev.readingProgress,
+          [scriptureId]: Math.max(prev.readingProgress[scriptureId] || 0, clamped),
+        },
+      }));
+    },
+    [],
+  );
+
+  const addPersonalWish = useCallback(
+    (realm: PersonalWish["realm"], text: string) => {
+      const clean = text.trim().slice(0, 300);
+      if (!clean) return;
+      const item: PersonalWish = {
+        id: `wish_${Date.now()}`,
+        realm,
+        text: clean,
+        createdAtMs: Date.now(),
+      };
+      setLocalState((prev) => ({
+        ...prev,
+        wishes: [item, ...prev.wishes].slice(0, 100),
+      }));
+    },
+    [],
+  );
+
+  const deletePersonalWish = useCallback((id: string) => {
+    setLocalState((prev) => ({
+      ...prev,
+      wishes: prev.wishes.filter((w) => w.id !== id),
+    }));
+  }, []);
+
+  const incrementWoodfish = useCallback(() => {
+    setLocalState((prev) => ({
+      ...prev,
+      woodfishTotal: prev.woodfishTotal + 1,
+    }));
+  }, []);
+
+  const recordOffering = useCallback((kind: keyof OfferingsCount) => {
+    setLocalState((prev) => ({
+      ...prev,
+      offeringsCount: {
+        ...prev.offeringsCount,
+        [kind]: prev.offeringsCount[kind] + 1,
+      },
+    }));
+  }, []);
+
+  const togglePilgrimageVisited = useCallback((siteId: string) => {
+    setLocalState((prev) => {
+      const exists = prev.pilgrimageVisited.includes(siteId);
+      return {
+        ...prev,
+        pilgrimageVisited: exists
+          ? prev.pilgrimageVisited.filter((id) => id !== siteId)
+          : [...prev.pilgrimageVisited, siteId],
+      };
+    });
+  }, []);
+
+  const updateSettings = useCallback((partial: Partial<AppSettings>) => {
+    setLocalState((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        ...partial,
+      },
+    }));
+  }, []);
+
   const value = useMemo<AppContextValue>(
     () => ({
       authUser,
@@ -985,6 +1193,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       saveParkIntro,
       saveChantingTrack,
       deleteChantingTrack,
+      readingProgress: localState.readingProgress,
+      wishes: localState.wishes,
+      woodfishTotal: localState.woodfishTotal,
+      offeringsCount: localState.offeringsCount,
+      pilgrimageVisited: localState.pilgrimageVisited,
+      settings: localState.settings,
+      updateReadingProgress,
+      addPersonalWish,
+      deletePersonalWish,
+      incrementWoodfish,
+      recordOffering,
+      togglePilgrimageVisited,
+      updateSettings,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
@@ -998,7 +1219,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       visitedBuildings,
       totalChantingMinutes,
       chantingSessionsCount,
-      localState.chantingLogs,
+      localState,
       content,
       cloudSynced,
       quotaWarning,

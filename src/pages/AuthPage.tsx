@@ -146,7 +146,7 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
     awaitingEmailCheck || (authUser !== null && !isEmailVerified);
 
   return (
-    <div className="min-h-screen bg-[#f6f0e5]">
+    <div className="min-h-screen bg-[#f6f0e5] text-[#39251d]">
       <div className="mx-auto flex min-h-screen max-w-[520px] flex-col justify-center px-6 py-8">
         <button
           type="button"

@@ -149,6 +149,18 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidScenePresence(data) {
+      return data.keys().hasAll(['uid', 'alias', 'sceneId', 'religionType', 'action', 'slotIndex', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'alias', 'sceneId', 'religionType', 'action', 'slotIndex', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.alias is string && data.alias.size() >= 1 && data.alias.size() <= 24
+        && data.sceneId is string && data.sceneId.size() >= 2 && data.sceneId.size() <= 64 && data.sceneId.matches('^[a-z0-9\\-]+$')
+        && data.religionType in ['buddhist', 'daoist']
+        && data.action in ['idle', 'hezhang', 'lifo', 'incense', 'lamp', 'flower', 'woodfish', 'chanting', 'gongshou']
+        && data.slotIndex is int && data.slotIndex >= 0 && data.slotIndex <= 11
+        && data.updatedAt is timestamp;
+    }
+
     // --- Collection Rules ---
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
@@ -304,6 +316,27 @@ service cloud.firestore {
           'title', 'parkSlug', 'scriptureId', 'durationLabel', 'audioUrl', 'updatedAt'
         ]);
       allow delete: if isAdmin() && isValidId(trackId);
+    }
+
+    match /scenePresence/{userId} {
+      allow get: if isValidId(userId);
+      allow list: if resource.data.religionType in ['buddhist', 'daoist'];
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidScenePresence(incoming())
+        && incoming().uid == userId
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidScenePresence(incoming())
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'alias', 'sceneId', 'religionType', 'action', 'slotIndex', 'updatedAt'
+        ]);
+      allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
     }
   }
 }

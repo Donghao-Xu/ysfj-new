@@ -395,7 +395,7 @@ export function AdminPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f6f0e5] pb-16">
+    <div className="min-h-screen bg-[#f6f0e5] pb-16 text-[#39251d]">
       <header className="sticky top-0 z-20 border-b border-[#e4d8c3] bg-[#f6f0e5]/95 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-[580px] items-center justify-between px-4">
           <button

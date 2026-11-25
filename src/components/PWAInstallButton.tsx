@@ -61,7 +61,7 @@ export function PWAInstallButton({ compact = false }: { compact?: boolean }) {
           onClick={() => setShowGuide(false)}
         >
           <div
-            className="w-full max-w-sm rounded-[20px] border border-[#e4d8c3] bg-[#f6f0e5] p-6 shadow-xl"
+            className="animate-panel-up w-full max-w-sm rounded-[20px] border border-[#e4d8c3] bg-[#f6f0e5] p-6 text-[#39251d] shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
