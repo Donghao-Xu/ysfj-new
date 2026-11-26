@@ -6,6 +6,7 @@
       "name": "yun-shang-fan-jing",
       "dependencies": {
         "@firebase/eslint-plugin-security-rules": "^0.0.2",
+        "@sparkjsdev/spark": "^2.4.0",
         "@tailwindcss/vite": "^4.3.5",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
@@ -543,6 +544,8 @@
     "@rollup/rollup-win32-x64-gnu": ["@rollup/rollup-win32-x64-gnu@4.68.8", "", { "os": "win32", "cpu": "x64" }, "sha512-63dWiHgvpWcienfdr465lT3SIn4u3535vbDfaLKhSn0F2KJ06bbcUsewDGJZUPZCbJ67qESrPDhb85UnWdb5ew=="],
 
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.68.8", "", { "os": "win32", "cpu": "x64" }, "sha512-/W1LBsMeQAdiCuH3Z2gkRspl3mlxL+butknhq4vXjmxO45vuT08BqhehxDoE4YS+m6s9lhpq6M9/PjTEAg8PYw=="],
+
+    "@sparkjsdev/spark": ["@sparkjsdev/spark@2.4.0", "", { "peerDependencies": { "three": ">=0.180.0" } }, "sha512-aUjgBfhwDRcF3nUwiAD6Nh7IwvxEmW9liz2qrAXIm2BlPYBmn81QbXIpGFLBSr/o0TKGvEXbNIsKujgPGV/7QQ=="],
 
     "@tailwindcss/node": ["@tailwindcss/node@4.3.5", "", { "dependencies": { "@jridgewell/remapping": "^2.3.5", "enhanced-resolve": "^5.24.5", "jiti": "^2.7.0", "lightningcss": "1.33.0", "magic-string": "^1.1.0", "source-map-js": "^1.2.1", "tailwindcss": "4.3.5" } }, "sha512-yT53FzV4ke0cr/BguDxhWMpm5MJu1O2muzk+tKw6lKHjODAsYArBbWwFbJiaksfzFv1tpkO9QHGzmfs1hJT66g=="],
 

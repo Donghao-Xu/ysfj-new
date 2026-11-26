@@ -238,6 +238,11 @@ function interpolateWaypoints(
   };
 }
 
+/**
+ * @deprecated V3.0 阶段0 已停用此旧版 2D 纹理透视变形/多图混合步行引擎。
+ * 保留文件仅用于历史参考与兼容回退，不再作为默认空间漫游技术；
+ * 真实空间漫游验证已迁移至独立模块 /spatial-lab (SpatialWalkLab)。
+ */
 export function PhotorealWalkViewport({
   request,
   onComplete,

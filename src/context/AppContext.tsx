@@ -172,7 +172,7 @@ function loadLocalState(): LocalState {
       },
       musicTrackId: DEFAULT_SOUND_MIXER_STATE.musicTrackId,
       roamingMode: "auto",
-      roamingMotionEnabled: true,
+      roamingMotionEnabled: false,
     },
   };
   try {

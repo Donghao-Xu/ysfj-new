@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",
+    "@sparkjsdev/spark": "^2.4.0",
     "@tailwindcss/vite": "^4.3.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

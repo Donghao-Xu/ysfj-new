@@ -7,13 +7,8 @@ import {
   Footprints,
   Navigation,
 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { PhotorealWalkViewport } from "@/components/PhotorealWalkViewport";
 import { useAppState } from "@/context/AppContext";
 import type {
@@ -32,6 +27,9 @@ export type RoamingTransitionState = {
   label?: string;
 };
 
+/** V3.0 阶段0：停用旧版图片透视拉伸与多图 Shader 混合步行引擎 */
+const LEGACY_SHADER_WALK_ENABLED = false;
+
 export function useSpatialMotionEnabled() {
   const { settings } = useAppState();
   const [osReduced, setOsReduced] = useState(false);
@@ -46,6 +44,7 @@ export function useSpatialMotionEnabled() {
   }, []);
 
   return (
+    LEGACY_SHADER_WALK_ENABLED &&
     settings.roamingMotionEnabled &&
     settings.animationMode === "full" &&
     !osReduced
@@ -341,25 +340,20 @@ export function SpatialViewport2D5({
               <span>{freeRoam ? "切回路径引导" : "开启自由漫步"}</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() =>
-                updateSettings({
-                  roamingMotionEnabled: !settings.roamingMotionEnabled,
-                })
-              }
-              title="随时开启或关闭缓步实景入殿过程"
-              className={`inline-flex min-h-[30px] items-center gap-1 rounded-lg px-2.5 text-[11px] font-medium transition-colors cursor-pointer ${
-                settings.roamingMotionEnabled
-                  ? "bg-white/10 hover:bg-white/15"
-                  : "bg-[#b88b44] text-[#1f1612] font-semibold"
-              }`}
+            <span
+              title="V3.0 阶段0 已停用图片拉伸步入，保持纯净静态切换"
+              className="inline-flex min-h-[30px] items-center gap-1 rounded-lg bg-white/8 px-2.5 text-[11px] text-[#d8cab8]"
             >
               <Footprints size={12} />
-              <span>
-                {settings.roamingMotionEnabled ? "实景缓步：开" : "简洁直切"}
-              </span>
-            </button>
+              <span>纯净静态切换</span>
+            </span>
+
+            <Link
+              to="/spatial-lab"
+              className="inline-flex min-h-[30px] items-center gap-1 rounded-lg border border-[#e5c17c]/35 bg-[#b88b44]/18 px-2.5 text-[11px] font-medium text-[#e5c17c] hover:bg-[#b88b44]/28"
+            >
+              <span>3DGS 空间实验室</span>
+            </Link>
           </div>
         </div>
 
