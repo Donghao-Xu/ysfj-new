@@ -29,12 +29,13 @@ import {
 import { SceneStageImage } from "@/components/SceneStageImage";
 import {
   SpatialViewport2D5,
-  type RoamingTransitionState,
+  useSpatialWalkController,
 } from "@/components/SpatialViewport2D5";
 import { useAppState } from "@/context/AppContext";
 import {
   DAOIST_MOUNTAIN_SCENE,
   DAOIST_SCENES,
+  getSceneById,
   type SceneConfig,
 } from "@/data/scenes";
 import { getSpatialNode, type SpatialConnection } from "@/data/spatialGraph";
@@ -73,7 +74,6 @@ export function DaoistRealmPage() {
   const [enteredHall, setEnteredHall] = useState(false);
   const isInsideHall = Boolean(activeScene.hasInterior && enteredHall);
 
-  const [transitionSeq, setTransitionSeq] = useState(0);
   const [activeSound, setActiveSound] = useState<NatureSoundType | null>(null);
   const [gongShouAck, setGongShouAck] = useState(false);
   const [gongShouSeq, setGongShouSeq] = useState(0);
@@ -84,17 +84,18 @@ export function DaoistRealmPage() {
   );
   const [wishText, setWishText] = useState("");
   const [wishNotice, setWishNotice] = useState("");
-  const [roamTransition, setRoamTransition] = useState<RoamingTransitionState>({
-    active: false,
-    kind: "push-in",
-    phase: "idle",
-  });
+  const {
+    activeWalk,
+    settlingFade,
+    startWalk,
+    handleWalkMidpoint,
+    handleWalkComplete,
+    handleWalkCancel,
+  } = useSpatialWalkController();
 
   const gongShouTimerRef = useRef<number | null>(null);
   const manualActionTimerRef = useRef<number | null>(null);
   const wishTimerRef = useRef<number | null>(null);
-  const roamTimerRef = useRef<number | null>(null);
-  const roamSettleTimerRef = useRef<number | null>(null);
 
   const spatialNode = getSpatialNode(activeScene.sceneId);
 
@@ -130,10 +131,6 @@ export function DaoistRealmPage() {
         window.clearTimeout(manualActionTimerRef.current);
       }
       if (wishTimerRef.current) window.clearTimeout(wishTimerRef.current);
-      if (roamTimerRef.current) window.clearTimeout(roamTimerRef.current);
-      if (roamSettleTimerRef.current) {
-        window.clearTimeout(roamSettleTimerRef.current);
-      }
     };
   }, []);
 
@@ -168,30 +165,6 @@ export function DaoistRealmPage() {
     setDaoChanting(false);
   };
 
-  const runSpatialSequence = (
-    kind: RoamingTransitionState["kind"],
-    label: string,
-    onMidpoint: () => void,
-    spatialCue: "gate-pass" | "hall-enter" | "hall-exit" = "gate-pass",
-  ) => {
-    if (roamTimerRef.current) window.clearTimeout(roamTimerRef.current);
-    if (roamSettleTimerRef.current) {
-      window.clearTimeout(roamSettleTimerRef.current);
-    }
-
-    soundManager.playSpatialCue("footstep", 3);
-    soundManager.playSpatialCue(spatialCue);
-
-    setRoamTransition({ active: true, kind, phase: "depart", label });
-    roamTimerRef.current = window.setTimeout(() => {
-      onMidpoint();
-      setRoamTransition({ active: true, kind, phase: "arrive" });
-      roamSettleTimerRef.current = window.setTimeout(() => {
-        setRoamTransition({ active: false, kind: "push-in", phase: "idle" });
-      }, 420);
-    }, 440);
-  };
-
   const selectScene = (nextSceneId: string) => {
     if (nextSceneId === activeScene.sceneId) return;
     resetHallRitualState();
@@ -200,53 +173,101 @@ export function DaoistRealmPage() {
       nextSceneId === DAOIST_SCENES[0].sceneId ? {} : { scene: nextSceneId },
       { replace: false },
     );
-    setTransitionSeq((s) => s + 1);
   };
 
   const handleWalkToConnection = (conn: SpatialConnection) => {
-    runSpatialSequence(
-      conn.transitionType,
-      conn.label,
-      () => selectScene(conn.targetSceneId),
-      "gate-pass",
+    const target = getSceneById(conn.targetSceneId);
+    if (!target) return;
+    startWalk(
+      {
+        mode: "courtyard-walk",
+        tradition: "daoist",
+        sceneId: activeScene.sceneId,
+        fromTitle: activeScene.sceneName,
+        toTitle: target.sceneName,
+        label: conn.label,
+        exteriorImage: activeScene.exteriorImage,
+        interiorImage: activeScene.mainImage,
+        targetImage: target.exteriorImage,
+        durationMs: 11800,
+        direction: conn.direction,
+      },
+      {
+        onArrive: () => selectScene(conn.targetSceneId),
+      },
     );
   };
 
   const handleEnterHall = () => {
     if (!activeScene.hasInterior) return;
-    runSpatialSequence(
-      "push-in",
-      `步入${activeScene.sceneName}`,
-      () => {
-        setEnteredHall(true);
-        setTransitionSeq((s) => s + 1);
-        playJadeChimeSound(settings.defaultVolume * 0.75);
+    startWalk(
+      {
+        mode: "enter-hall",
+        tradition: "daoist",
+        sceneId: activeScene.sceneId,
+        fromTitle: `${activeScene.sceneName}庭院`,
+        toTitle: activeScene.sceneName,
+        label: `步入${activeScene.sceneName}`,
+        exteriorImage: activeScene.exteriorImage,
+        interiorImage: activeScene.mainImage,
+        durationMs: 13200,
+        direction: "forward",
       },
-      "hall-enter",
+      {
+        onArrive: () => {
+          setEnteredHall(true);
+        },
+        onAfterSettle: () => {
+          playJadeChimeSound(settings.defaultVolume * 0.75);
+        },
+      },
     );
   };
 
   const handleExitHall = () => {
-    runSpatialSequence(
-      "pull-back",
-      "退至殿外正面",
-      () => {
-        resetHallRitualState();
-        setEnteredHall(false);
-        setTransitionSeq((s) => s + 1);
+    startWalk(
+      {
+        mode: "exit-hall",
+        tradition: "daoist",
+        sceneId: activeScene.sceneId,
+        fromTitle: `${activeScene.sceneName}殿内`,
+        toTitle: `${activeScene.sceneName}庭院`,
+        label: "退至殿外正面",
+        exteriorImage: activeScene.exteriorImage,
+        interiorImage: activeScene.mainImage,
+        durationMs: 11800,
+        direction: "back",
       },
-      "hall-exit",
+      {
+        onArrive: () => {
+          resetHallRitualState();
+          setEnteredHall(false);
+        },
+      },
     );
   };
 
   const handleSelectHall = (hallSceneId: string) => {
     if (hallSceneId === activeScene.sceneId) return;
     const target = DAOIST_DISPLAY_SCENES.find((s) => s.sceneId === hallSceneId);
-    runSpatialSequence(
-      "push-in",
-      `前往${target?.sceneName || "宫观"}`,
-      () => selectScene(hallSceneId),
-      "gate-pass",
+    if (!target) return;
+    startWalk(
+      {
+        mode: "courtyard-walk",
+        tradition: "daoist",
+        sceneId: activeScene.sceneId,
+        fromTitle: activeScene.sceneName,
+        toTitle: target.sceneName,
+        label: `前往${target.sceneName}`,
+        exteriorImage: activeScene.exteriorImage,
+        interiorImage: activeScene.mainImage,
+        targetImage: target.exteriorImage,
+        durationMs: 11800,
+        direction: "forward",
+      },
+      {
+        onArrive: () => selectScene(hallSceneId),
+      },
     );
   };
 
@@ -331,7 +352,7 @@ export function DaoistRealmPage() {
     <AppShell forceActivePath="/worlds" realmTone="daoist">
       <SceneTransitionCurtain
         type="daoist-mist"
-        transitionKey={transitionSeq}
+        transitionKey={0}
       />
 
       {/* Top Breadcrumb & Nature Sound Toggle */}
@@ -462,7 +483,11 @@ export function DaoistRealmPage() {
               realm="daoist"
               spatialNode={spatialNode}
               isInsideHall={isInsideHall}
-              transitionState={roamTransition}
+              activeWalk={activeWalk}
+              settlingFade={settlingFade}
+              onWalkMidpoint={handleWalkMidpoint}
+              onWalkComplete={handleWalkComplete}
+              onWalkCancel={handleWalkCancel}
               onWalkToConnection={handleWalkToConnection}
               onEnterInterior={activeScene.hasInterior ? handleEnterHall : undefined}
               onExitInterior={isInsideHall ? handleExitHall : undefined}

@@ -11,7 +11,6 @@ export function SceneStageImage({
   scene,
   imageMode = "interior",
   className = "h-full w-full object-cover",
-  disableZoomMotion = false,
 }: {
   scene: SceneConfig;
   imageMode?: "exterior" | "interior";
@@ -45,7 +44,7 @@ export function SceneStageImage({
     const fadeTimer = window.setTimeout(() => {
       setPrevSrc(null);
       setIsFadingIn(false);
-    }, 480);
+    }, 320);
 
     return () => window.clearTimeout(fadeTimer);
   }, [targetKey, scene, targetSrc, displayed.key, displayed.src, failedKey]);
@@ -79,7 +78,7 @@ export function SceneStageImage({
           src={prevSrc}
           alt=""
           aria-hidden="true"
-          className={`${className} pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500`}
+          className={`${className} pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300`}
         />
       )}
 
@@ -128,10 +127,8 @@ export function SceneStageImage({
             if (isFadingIn) setIsFadingIn(false);
           }}
           onError={handleImageError}
-          className={`${className} ${
-            disableZoomMotion ? "" : "animate-camera-push "
-          }transition-opacity duration-500 ${
-            isFadingIn ? "opacity-80" : "opacity-100"
+          className={`${className} transition-opacity duration-300 ${
+            isFadingIn ? "opacity-85" : "opacity-100"
           }`}
         />
       )}

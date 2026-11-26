@@ -19,6 +19,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { BuddhistHallStage } from "@/components/BuddhistHallStage";
+import { DaxiongRealSpaceViewport } from "@/components/DaxiongRealSpaceViewport";
 import {
   SacredEnvironmentLayer,
   SceneTransitionCurtain,
@@ -35,14 +36,16 @@ import {
 import { SceneStageImage } from "@/components/SceneStageImage";
 import {
   SpatialViewport2D5,
-  type RoamingTransitionState,
+  useSpatialWalkController,
 } from "@/components/SpatialViewport2D5";
 import { useAppState } from "@/context/AppContext";
 import {
   BUDDHIST_GATE_SCENE,
   BUDDHIST_SCENES,
+  getSceneById,
   type SceneConfig,
 } from "@/data/scenes";
+import { getSceneAssetManifest } from "@/data/sceneAssets";
 import { getSpatialNode, type SpatialConnection } from "@/data/spatialGraph";
 import {
   playSingingBowlChime,
@@ -97,17 +100,21 @@ export function BuddhistRealmPage() {
   } = useAppState();
 
   const activeScene = resolveBuddhistScene(searchParams.get("scene"));
+  const isDaxiongPrototype = activeScene.sceneId === "buddhist-daxiong";
   const [enteredHall, setEnteredHall] = useState(false);
+  const [daxiongWalkSignal, setDaxiongWalkSignal] = useState(0);
   const isInsideHall = Boolean(activeScene.hasInterior && enteredHall);
 
-  const [transitionSeq, setTransitionSeq] = useState(0);
   const [ambientOn, setAmbientOn] = useState(false);
   const [volume, setVolume] = useState(settings.defaultVolume);
-  const [roamTransition, setRoamTransition] = useState<RoamingTransitionState>({
-    active: false,
-    kind: "push-in",
-    phase: "idle",
-  });
+  const {
+    activeWalk,
+    settlingFade,
+    startWalk,
+    handleWalkMidpoint,
+    handleWalkComplete,
+    handleWalkCancel,
+  } = useSpatialWalkController();
 
   // Respectful worship interactions + animation sequence counters
   const [incenseLit, setIncenseLit] = useState<0 | 1 | 3>(0);
@@ -129,8 +136,6 @@ export function BuddhistRealmPage() {
 
   const manualActionTimerRef = useRef<number | null>(null);
   const wishTimerRef = useRef<number | null>(null);
-  const roamTimerRef = useRef<number | null>(null);
-  const roamSettleTimerRef = useRef<number | null>(null);
   const chantingAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const spatialNode = getSpatialNode(activeScene.sceneId);
@@ -166,10 +171,6 @@ export function BuddhistRealmPage() {
         window.clearTimeout(manualActionTimerRef.current);
       }
       if (wishTimerRef.current) window.clearTimeout(wishTimerRef.current);
-      if (roamTimerRef.current) window.clearTimeout(roamTimerRef.current);
-      if (roamSettleTimerRef.current) {
-        window.clearTimeout(roamSettleTimerRef.current);
-      }
     };
   }, []);
 
@@ -201,30 +202,6 @@ export function BuddhistRealmPage() {
     }
   };
 
-  const runSpatialSequence = (
-    kind: RoamingTransitionState["kind"],
-    label: string,
-    onMidpoint: () => void,
-    spatialCue: "gate-pass" | "hall-enter" | "hall-exit" = "gate-pass",
-  ) => {
-    if (roamTimerRef.current) window.clearTimeout(roamTimerRef.current);
-    if (roamSettleTimerRef.current) {
-      window.clearTimeout(roamSettleTimerRef.current);
-    }
-
-    soundManager.playSpatialCue("footstep", 3);
-    soundManager.playSpatialCue(spatialCue);
-
-    setRoamTransition({ active: true, kind, phase: "depart", label });
-    roamTimerRef.current = window.setTimeout(() => {
-      onMidpoint();
-      setRoamTransition({ active: true, kind, phase: "arrive" });
-      roamSettleTimerRef.current = window.setTimeout(() => {
-        setRoamTransition({ active: false, kind: "push-in", phase: "idle" });
-      }, 420);
-    }, 440);
-  };
-
   const selectScene = (nextSceneId: string) => {
     if (nextSceneId === activeScene.sceneId) return;
     resetHallRitualState();
@@ -233,42 +210,89 @@ export function BuddhistRealmPage() {
       nextSceneId === BUDDHIST_SCENES[0].sceneId ? {} : { scene: nextSceneId },
       { replace: false },
     );
-    setTransitionSeq((s) => s + 1);
   };
 
   const handleWalkToConnection = (conn: SpatialConnection) => {
-    runSpatialSequence(
-      conn.transitionType,
-      conn.label,
-      () => selectScene(conn.targetSceneId),
-      "gate-pass",
+    const targetScene = getSceneById(conn.targetSceneId);
+    if (!targetScene) return;
+    const manifest = getSceneAssetManifest(activeScene.sceneId);
+    startWalk(
+      {
+        mode: "courtyard-walk",
+        tradition: "buddhist",
+        sceneId: activeScene.sceneId,
+        fromTitle: activeScene.sceneName,
+        toTitle: targetScene.sceneName,
+        label: conn.label,
+        exteriorImage: activeScene.exteriorImage,
+        interiorImage: activeScene.mainImage,
+        targetImage: targetScene.exteriorImage,
+        durationMs: manifest?.animationProfile.courtyardDurationMs ?? 12400,
+        direction: conn.direction,
+      },
+      {
+        onArrive: () => selectScene(conn.targetSceneId),
+      },
     );
   };
 
   const handleEnterHall = () => {
     if (!activeScene.hasInterior) return;
-    runSpatialSequence(
-      "push-in",
-      `步入${activeScene.sceneName}`,
-      () => {
-        setEnteredHall(true);
-        setTransitionSeq((s) => s + 1);
-        playSingingBowlChime(volume * 0.65);
+    if (isDaxiongPrototype) {
+      setDaxiongWalkSignal((n) => n + 1);
+      return;
+    }
+    const manifest = getSceneAssetManifest(activeScene.sceneId);
+    startWalk(
+      {
+        mode: "enter-hall",
+        tradition: "buddhist",
+        sceneId: activeScene.sceneId,
+        fromTitle: `${activeScene.sceneName}庭院`,
+        toTitle: activeScene.sceneName,
+        label: `步入${activeScene.sceneName}`,
+        exteriorImage: activeScene.exteriorImage,
+        interiorImage: activeScene.mainImage,
+        durationMs: manifest?.animationProfile.enterDurationMs ?? 17600,
+        direction: "forward",
       },
-      "hall-enter",
+      {
+        onArrive: () => {
+          setEnteredHall(true);
+        },
+        onAfterSettle: () => {
+          playSingingBowlChime(volume * 0.65);
+        },
+      },
     );
   };
 
   const handleExitHall = () => {
-    runSpatialSequence(
-      "pull-back",
-      "退至殿外正面",
-      () => {
-        resetHallRitualState();
-        setEnteredHall(false);
-        setTransitionSeq((s) => s + 1);
+    if (isDaxiongPrototype) {
+      resetHallRitualState();
+      setEnteredHall(false);
+      return;
+    }
+    const manifest = getSceneAssetManifest(activeScene.sceneId);
+    startWalk(
+      {
+        mode: "exit-hall",
+        tradition: "buddhist",
+        sceneId: activeScene.sceneId,
+        fromTitle: `${activeScene.sceneName}殿内`,
+        toTitle: `${activeScene.sceneName}庭院`,
+        label: "退至殿外正面",
+        exteriorImage: activeScene.exteriorImage,
+        interiorImage: activeScene.mainImage,
+        durationMs: manifest?.animationProfile.exitDurationMs ?? 15200,
+        direction: "back",
       },
-      "hall-exit",
+      {
+        onArrive: () => {
+          resetHallRitualState();
+          setEnteredHall(false);
+        },
+      },
     );
   };
 
@@ -300,11 +324,29 @@ export function BuddhistRealmPage() {
   const handleSelectHall = (hallSceneId: string) => {
     if (hallSceneId === activeScene.sceneId) return;
     const target = BUDDHIST_DISPLAY_SCENES.find((s) => s.sceneId === hallSceneId);
-    runSpatialSequence(
-      "push-in",
-      `前往${target?.sceneName || "佛殿"}`,
-      () => selectScene(hallSceneId),
-      "gate-pass",
+    if (!target) return;
+    if (isDaxiongPrototype || hallSceneId === "buddhist-daxiong") {
+      selectScene(hallSceneId);
+      return;
+    }
+    const manifest = getSceneAssetManifest(activeScene.sceneId);
+    startWalk(
+      {
+        mode: "courtyard-walk",
+        tradition: "buddhist",
+        sceneId: activeScene.sceneId,
+        fromTitle: activeScene.sceneName,
+        toTitle: target.sceneName,
+        label: `前往${target.sceneName}`,
+        exteriorImage: activeScene.exteriorImage,
+        interiorImage: activeScene.mainImage,
+        targetImage: target.exteriorImage,
+        durationMs: manifest?.animationProfile.courtyardDurationMs ?? 12400,
+        direction: "forward",
+      },
+      {
+        onArrive: () => selectScene(hallSceneId),
+      },
     );
   };
 
@@ -439,7 +481,7 @@ export function BuddhistRealmPage() {
     <AppShell forceActivePath="/worlds" realmTone="buddhist">
       <SceneTransitionCurtain
         type="buddhist-light"
-        transitionKey={transitionSeq}
+        transitionKey={0}
       />
 
       {/* Breadcrumb + Ambient Audio Control */}
@@ -561,33 +603,37 @@ export function BuddhistRealmPage() {
         {/* Active Hall Visual Stage (Exterior: Pure Grand Architecture; Interior: Interactive Stage) */}
         <section className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
           <div className="flex flex-col overflow-hidden rounded-2xl border border-[#e2d7c5] bg-[#2a1915] lg:col-span-7 dark:border-[#332922]">
-            <SpatialViewport2D5
-              realm="buddhist"
-              spatialNode={spatialNode}
-              isInsideHall={isInsideHall}
-              transitionState={roamTransition}
-              onWalkToConnection={handleWalkToConnection}
-              onEnterInterior={activeScene.hasInterior ? handleEnterHall : undefined}
-              onExitInterior={isInsideHall ? handleExitHall : undefined}
-            >
-              <div className="relative min-h-[300px] w-full aspect-[4/3] sm:aspect-[16/10] lg:aspect-[16/9] overflow-hidden">
-                <div className="absolute inset-0">
-                  <SceneStageImage
-                    scene={activeScene}
-                    imageMode={isInsideHall ? "interior" : "exterior"}
-                    disableZoomMotion={isInsideHall}
-                    className="h-full w-full object-cover object-center"
-                  />
-                </div>
+            {isDaxiongPrototype ? (
+              <DaxiongRealSpaceViewport
+                isInsideHall={isInsideHall}
+                walkSignal={daxiongWalkSignal}
+                onEnterInterior={() => setEnteredHall(true)}
+                onExitInterior={() => {
+                  resetHallRitualState();
+                  setEnteredHall(false);
+                }}
+                onNavigateScene={selectScene}
+                volume={volume}
+              >
+                {isInsideHall && (
+                  <div className="absolute inset-0">
+                    <SceneStageImage
+                      scene={activeScene}
+                      imageMode="interior"
+                      disableZoomMotion
+                      className="h-full w-full object-cover object-center"
+                    />
+                  </div>
+                )}
+
                 <div
                   className={`pointer-events-none absolute inset-0 ${
                     isInsideHall
                       ? "bg-gradient-to-b from-black/38 via-transparent to-black/24"
-                      : "bg-gradient-to-b from-black/48 via-transparent to-black/75"
+                      : "bg-gradient-to-b from-black/48 via-transparent to-black/32"
                   }`}
                 />
 
-                {/* 殿外瞻仰保留环境氛围光影；所有佛殿进入殿内后统一保持净洁空间，绝无漂浮提示或遮挡气泡 */}
                 {!isInsideHall && (
                   <SacredEnvironmentLayer
                     variant="buddhist"
@@ -614,7 +660,7 @@ export function BuddhistRealmPage() {
                   />
                 )}
 
-                {/* 顶部安全渐变标题区（保证安全内边距与行高，适配手机/电脑且永不被裁切） */}
+                {/* 顶部安全渐变标题区 */}
                 <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 bg-gradient-to-b from-black/72 via-black/30 to-transparent px-4 pt-4 pb-8 sm:px-5 sm:pt-4.5">
                   <div className="min-w-0 flex-1 pr-2">
                     <p className="truncate text-[11px] leading-normal font-medium tracking-wider text-[#e5c17c] drop-shadow">
@@ -636,33 +682,115 @@ export function BuddhistRealmPage() {
                     </button>
                   )}
                 </div>
+              </DaxiongRealSpaceViewport>
+            ) : (
+              <SpatialViewport2D5
+                realm="buddhist"
+                spatialNode={spatialNode}
+                isInsideHall={isInsideHall}
+                activeWalk={activeWalk}
+                settlingFade={settlingFade}
+                onWalkMidpoint={handleWalkMidpoint}
+                onWalkComplete={handleWalkComplete}
+                onWalkCancel={handleWalkCancel}
+                onWalkToConnection={handleWalkToConnection}
+                onEnterInterior={activeScene.hasInterior ? handleEnterHall : undefined}
+                onExitInterior={isInsideHall ? handleExitHall : undefined}
+              >
+                <div className="relative min-h-[300px] w-full aspect-[4/3] sm:aspect-[16/10] lg:aspect-[16/9] overflow-hidden">
+                  <div className="absolute inset-0">
+                    <SceneStageImage
+                      scene={activeScene}
+                      imageMode={isInsideHall ? "interior" : "exterior"}
+                      disableZoomMotion={isInsideHall}
+                      className="h-full w-full object-cover object-center"
+                    />
+                  </div>
+                  <div
+                    className={`pointer-events-none absolute inset-0 ${
+                      isInsideHall
+                        ? "bg-gradient-to-b from-black/38 via-transparent to-black/24"
+                        : "bg-gradient-to-b from-black/48 via-transparent to-black/75"
+                    }`}
+                  />
 
-                {/* Exterior Primary Entry CTA (Zero interactions shown on exterior!) */}
-                {!isInsideHall && (
-                  <div className="absolute inset-x-0 bottom-5 z-20 flex flex-col items-center px-4 text-center">
-                    {activeScene.hasInterior ? (
+                  {/* 殿外瞻仰保留环境氛围光影；所有佛殿进入殿内后统一保持净洁空间，绝无漂浮提示或遮挡气泡 */}
+                  {!isInsideHall && (
+                    <SacredEnvironmentLayer
+                      variant="buddhist"
+                      showLantern={false}
+                      showLotus={false}
+                    />
+                  )}
+
+                  {isInsideHall && (
+                    <BuddhistHallStage
+                      scene={activeScene}
+                      selfAction={effectiveAction}
+                      peers={peers}
+                      incenseLit={incenseLit}
+                      incenseSeq={incenseSeq}
+                      lampLit={lampLit}
+                      lampSeq={lampSeq}
+                      selectedLamp={selectedLamp}
+                      flowerOffered={flowerOffered}
+                      flowerSeq={flowerSeq}
+                      selectedFlower={selectedFlower}
+                      woodfishSeq={woodfishSeq}
+                      chantingPlaying={chantingPlaying}
+                    />
+                  )}
+
+                  {/* 顶部安全渐变标题区（保证安全内边距与行高，适配手机/电脑且永不被裁切） */}
+                  <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 bg-gradient-to-b from-black/72 via-black/30 to-transparent px-4 pt-4 pb-8 sm:px-5 sm:pt-4.5">
+                    <div className="min-w-0 flex-1 pr-2">
+                      <p className="truncate text-[11px] leading-normal font-medium tracking-wider text-[#e5c17c] drop-shadow">
+                        {activeScene.subtitle}
+                      </p>
+                      <h2 className="mt-0.5 pt-0.5 font-serif-display text-lg leading-[1.38] font-bold text-[#fff8eb] drop-shadow sm:text-xl md:text-2xl">
+                        {activeScene.sceneName}
+                      </h2>
+                    </div>
+
+                    {isInsideHall && (
                       <button
                         type="button"
-                        onClick={handleEnterHall}
-                        className="inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-[#b88b44] px-7 py-3 text-sm font-bold text-[#1f1612] shadow-lg transition-all hover:opacity-95 active:scale-[0.97] cursor-pointer"
+                        onClick={handleExitHall}
+                        className="pointer-events-auto inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-xl border border-[#e5c17c]/45 bg-[#1b120e]/80 px-3 py-1.5 text-[11px] font-semibold text-[#fff8eb] backdrop-blur-sm transition-colors hover:bg-[#2c1d16] cursor-pointer"
                       >
-                        <DoorOpen size={17} />
-                        <span>步入{activeScene.sceneName}（进入大殿）</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleSelectHall(BUDDHIST_SCENES[0].sceneId)}
-                        className="inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-[#b88b44] px-7 py-3 text-sm font-bold text-[#1f1612] shadow-lg transition-all hover:opacity-95 active:scale-[0.97] cursor-pointer"
-                      >
-                        <span>前往主殿 · 大雄宝殿</span>
-                        <ArrowRight size={17} />
+                        <LogOut size={13} />
+                        <span>退至殿外</span>
                       </button>
                     )}
                   </div>
-                )}
-              </div>
-            </SpatialViewport2D5>
+
+                  {/* Exterior Primary Entry CTA (Zero interactions shown on exterior!) */}
+                  {!isInsideHall && (
+                    <div className="absolute inset-x-0 bottom-5 z-20 flex flex-col items-center px-4 text-center">
+                      {activeScene.hasInterior ? (
+                        <button
+                          type="button"
+                          onClick={handleEnterHall}
+                          className="inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-[#b88b44] px-7 py-3 text-sm font-bold text-[#1f1612] shadow-lg transition-all hover:opacity-95 active:scale-[0.97] cursor-pointer"
+                        >
+                          <DoorOpen size={17} />
+                          <span>步入{activeScene.sceneName}（进入大殿）</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSelectHall(BUDDHIST_SCENES[0].sceneId)}
+                          className="inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-[#b88b44] px-7 py-3 text-sm font-bold text-[#1f1612] shadow-lg transition-all hover:opacity-95 active:scale-[0.97] cursor-pointer"
+                        >
+                          <span>前往主殿 · 大雄宝殿</span>
+                          <ArrowRight size={17} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </SpatialViewport2D5>
+            )}
 
             {/* Instant Action Bar ONLY rendered inside hall interior */}
             {isInsideHall && (

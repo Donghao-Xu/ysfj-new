@@ -11,6 +11,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { CulturalIcon } from "@/components/Icon";
 import { ResilientImage } from "@/components/ResilientImage";
+import { TempleMasterPlanPanel } from "@/components/TempleMasterPlanPanel";
 import { useAppState } from "@/context/AppContext";
 import { getBuildingDedicatedImage, sceneImages } from "@/data/scenes";
 
@@ -310,6 +311,8 @@ export function ParkHomePage() {
           );
         })}
       </div>
+
+      {park.slug === "buddhist" && <TempleMasterPlanPanel />}
 
       <p className="mt-6 text-center text-xs leading-relaxed text-[#857362] dark:text-[#a79886]">
         {park.title}内容独立维护，建筑介绍只展示所属体系的相关文化。

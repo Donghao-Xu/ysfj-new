@@ -1,3 +1,4 @@
+import type { TemplePathType } from "@/data/templeMasterPlan";
 import type { NatureSoundType, ReligiousAudioType, RetreatMusicTrackId } from "@/lib/audio";
 
 export type SpatialRealmType = "buddhist" | "daoist" | "nature";
@@ -22,10 +23,18 @@ export type SpatialConnection = {
   label: string;
   direction: SpatialDirection;
   transitionType: SpatialTransitionKind;
+  /** 对应 V3.0 规划连接路径 ID */
+  pathId?: string;
+  /** 对应路径传统空间类型 */
+  pathType?: TemplePathType;
+  /** 规划缓步时长（ms） */
+  walkDurationMs?: number;
 };
 
 export type SpatialNode = {
   sceneId: string;
+  /** 对应 V3.0 数字寺院总体规划空间节点 ID */
+  masterNodeId?: string;
   realm: SpatialRealmType;
   title: string;
   subtitle: string;
@@ -57,6 +66,7 @@ export const SPATIAL_GRAPH: Record<string, SpatialNode> = {
   // ==================== 佛教梵境空间路径 ====================
   "buddhist-gate": {
     sceneId: "buddhist-gate",
+    masterNodeId: "temple-gate",
     realm: "buddhist",
     title: "山门初入",
     subtitle: "石阶钟声 · 红墙古柏",
@@ -69,12 +79,18 @@ export const SPATIAL_GRAPH: Record<string, SpatialNode> = {
         label: "沿石阶向前 · 大雄宝殿",
         direction: "forward",
         transitionType: "push-in",
+        pathId: "path-courtyard-to-daxiong",
+        pathType: "main-flagstone",
+        walkDurationMs: 17600,
       },
       {
         targetSceneId: "buddhist-culture",
         label: "步向东侧 · 禅院文化廊",
         direction: "right",
         transitionType: "lateral-right",
+        pathId: "path-right-corridor-to-cangjing",
+        pathType: "courtyard-link",
+        walkDurationMs: 12800,
       },
     ],
     audioConfig: {
@@ -91,6 +107,7 @@ export const SPATIAL_GRAPH: Record<string, SpatialNode> = {
   },
   "buddhist-daxiong": {
     sceneId: "buddhist-daxiong",
+    masterNodeId: "daxiong-hall",
     realm: "buddhist",
     title: "大雄宝殿",
     subtitle: "中轴主殿 · 庄严宏阔",
@@ -103,24 +120,36 @@ export const SPATIAL_GRAPH: Record<string, SpatialNode> = {
         label: "回望山门广场",
         direction: "back",
         transitionType: "pull-back",
+        pathId: "path-inner-to-main-courtyard",
+        pathType: "main-flagstone",
+        walkDurationMs: 12800,
       },
       {
         targetSceneId: "buddhist-dizang",
         label: "向左穿廊 · 地藏殿",
         direction: "left",
         transitionType: "lateral-left",
+        pathId: "path-side-courtyard-to-dizang",
+        pathType: "courtyard-link",
+        walkDurationMs: 13600,
       },
       {
         targetSceneId: "buddhist-guanyin",
         label: "向右穿廊 · 观音殿",
         direction: "right",
         transitionType: "lateral-right",
+        pathId: "path-left-corridor-to-guanyin",
+        pathType: "corner-corridor",
+        walkDurationMs: 13000,
       },
       {
         targetSceneId: "buddhist-pureland",
         label: "继续向前 · 净土极乐",
         direction: "forward",
         transitionType: "push-in",
+        pathId: "path-side-courtyard-to-lotus-pond",
+        pathType: "courtyard-link",
+        walkDurationMs: 12000,
       },
     ],
     audioConfig: {
@@ -137,6 +166,7 @@ export const SPATIAL_GRAPH: Record<string, SpatialNode> = {
   },
   "buddhist-dizang": {
     sceneId: "buddhist-dizang",
+    masterNodeId: "dizang-hall",
     realm: "buddhist",
     title: "地藏殿",
     subtitle: "厚德重檐 · 静思孝念",
@@ -149,12 +179,18 @@ export const SPATIAL_GRAPH: Record<string, SpatialNode> = {
         label: "向右回廊 · 大雄宝殿",
         direction: "right",
         transitionType: "lateral-right",
+        pathId: "path-right-corridor-to-side-courtyard",
+        pathType: "corner-corridor",
+        walkDurationMs: 12400,
       },
       {
         targetSceneId: "buddhist-guanyin",
         label: "穿庭而过 · 观音殿",
         direction: "forward",
         transitionType: "push-in",
+        pathId: "path-left-corridor-to-guanyin",
+        pathType: "corner-corridor",
+        walkDurationMs: 13000,
       },
     ],
     audioConfig: {
@@ -171,6 +207,7 @@ export const SPATIAL_GRAPH: Record<string, SpatialNode> = {
   },
   "buddhist-guanyin": {
     sceneId: "buddhist-guanyin",
+    masterNodeId: "guanyin-hall",
     realm: "buddhist",
     title: "观音殿",
     subtitle: "静雅别院 · 清莲慈照",
@@ -183,12 +220,18 @@ export const SPATIAL_GRAPH: Record<string, SpatialNode> = {
         label: "向左回廊 · 大雄宝殿",
         direction: "left",
         transitionType: "lateral-left",
+        pathId: "path-courtyard-to-left-corridor",
+        pathType: "corridor",
+        walkDurationMs: 11200,
       },
       {
         targetSceneId: "buddhist-pureland",
         label: "向前穿庭 · 净土极乐",
         direction: "forward",
         transitionType: "push-in",
+        pathId: "path-side-courtyard-to-lotus-pond",
+        pathType: "courtyard-link",
+        walkDurationMs: 12000,
       },
     ],
     audioConfig: {
@@ -205,6 +248,7 @@ export const SPATIAL_GRAPH: Record<string, SpatialNode> = {
   },
   "buddhist-pureland": {
     sceneId: "buddhist-pureland",
+    masterNodeId: "lotus-pond",
     realm: "buddhist",
     title: "西方极乐静境",
     subtitle: "莲池亭台 · 光华清净",
@@ -217,12 +261,18 @@ export const SPATIAL_GRAPH: Record<string, SpatialNode> = {
         label: "退回观音莲庭",
         direction: "back",
         transitionType: "pull-back",
+        pathId: "path-left-corridor-to-guanyin",
+        pathType: "corner-corridor",
+        walkDurationMs: 13000,
       },
       {
         targetSceneId: "buddhist-culture",
         label: "漫步前往 · 禅院文化廊",
         direction: "right",
         transitionType: "lateral-right",
+        pathId: "path-right-corridor-to-cangjing",
+        pathType: "courtyard-link",
+        walkDurationMs: 12800,
       },
     ],
     audioConfig: {
@@ -239,6 +289,7 @@ export const SPATIAL_GRAPH: Record<string, SpatialNode> = {
   },
   "buddhist-culture": {
     sceneId: "buddhist-culture",
+    masterNodeId: "cangjing-library",
     realm: "buddhist",
     title: "寺院建筑文化与历史",
     subtitle: "飞檐斗拱 · 古刹文脉",
@@ -251,12 +302,18 @@ export const SPATIAL_GRAPH: Record<string, SpatialNode> = {
         label: "返回山门广场",
         direction: "left",
         transitionType: "lateral-left",
+        pathId: "path-gate-to-inner-courtyard",
+        pathType: "main-flagstone",
+        walkDurationMs: 14500,
       },
       {
         targetSceneId: "buddhist-daxiong",
         label: "向前走入 · 大雄宝殿",
         direction: "forward",
         transitionType: "push-in",
+        pathId: "path-courtyard-to-daxiong",
+        pathType: "main-flagstone",
+        walkDurationMs: 17600,
       },
     ],
     audioConfig: {

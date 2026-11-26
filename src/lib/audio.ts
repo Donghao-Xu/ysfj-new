@@ -1072,26 +1072,7 @@ class UnifiedSoundManager {
     const now = ctx.currentTime;
 
     if (cue === "footstep") {
-      // Natural gentle stone-courtyard / wood-plank footsteps
-      const count = Math.max(1, Math.min(4, steps));
-      for (let i = 0; i < count; i += 1) {
-        const offset = i * 0.26;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "triangle";
-        const base = 115 + (i % 2) * 14;
-        osc.frequency.setValueAtTime(base, now + offset);
-        osc.frequency.exponentialRampToValueAtTime(48, now + offset + 0.075);
-
-        gain.gain.setValueAtTime(0.0008, now + offset);
-        gain.gain.linearRampToValueAtTime(0.11, now + offset + 0.012);
-        gain.gain.exponentialRampToValueAtTime(0.0005, now + offset + 0.11);
-
-        osc.connect(gain);
-        gain.connect(dest);
-        osc.start(now + offset);
-        osc.stop(now + offset + 0.13);
-      }
+      this.playFootstepSurface("stone", steps);
       return;
     }
 
@@ -1156,6 +1137,190 @@ class UnifiedSoundManager {
       gain.connect(dest);
       osc.start(now);
       osc.stop(now + 2.9);
+    }
+  }
+
+  private footstepNoiseBuffer: AudioBuffer | null = null;
+  private footstepAlt = 0;
+
+  private getFootstepNoiseBuffer(ctx: AudioContext): AudioBuffer {
+    if (
+      this.footstepNoiseBuffer &&
+      this.footstepNoiseBuffer.sampleRate === ctx.sampleRate
+    ) {
+      return this.footstepNoiseBuffer;
+    }
+    const len = Math.floor(ctx.sampleRate * 0.08);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const ch = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i += 1) {
+      const w = Math.random() * 2 - 1;
+      last = (last + 0.14 * w) / 1.14;
+      ch[i] = last * 2.4;
+    }
+    this.footstepNoiseBuffer = buf;
+    return buf;
+  }
+
+  /**
+   * 步行表面质感脚步声（室外青石板 / 门槛木阶 / 殿内金砖 / 山径砂土）：
+   * 采用短促带通摩擦瞬态 + 柔和低频落地共振，随缓步节奏交替触发，停步即止
+   */
+  playFootstepSurface(
+    surface: "stone" | "wood" | "jinzhuan" | "earth" = "stone",
+    steps = 1,
+    intensity = 1,
+  ) {
+    if (!this.isLayerAudible("spatial")) return;
+    const ctx = this.ensureGraph();
+    const dest = this.getLayerDestination("spatial");
+    if (!ctx || !dest) return;
+
+    const now = ctx.currentTime;
+    const count = Math.max(1, Math.min(4, steps));
+    const amp = Math.max(0.04, Math.min(1, intensity));
+    const noiseBuf = this.getFootstepNoiseBuffer(ctx);
+
+    for (let i = 0; i < count; i += 1) {
+      this.footstepAlt = (this.footstepAlt + 1) % 2;
+      const lrShift = this.footstepAlt === 0 ? 1.0 : 0.94;
+      const offset = i * 0.72;
+      const start = now + offset;
+
+      // 1. Soft sole contact grit/scrape transient (filtered noise)
+      const noiseSrc = ctx.createBufferSource();
+      noiseSrc.buffer = noiseBuf;
+      const noiseFilter = ctx.createBiquadFilter();
+      noiseFilter.type = "bandpass";
+      const freqCenter =
+        surface === "earth"
+          ? 660
+          : surface === "wood"
+            ? 320
+            : surface === "jinzhuan"
+              ? 410
+              : 520;
+      noiseFilter.frequency.setValueAtTime(freqCenter * lrShift, start);
+      noiseFilter.Q.setValueAtTime(
+        surface === "jinzhuan" ? 1.3 : surface === "stone" ? 1.1 : 0.85,
+        start,
+      );
+
+      const noiseGain = ctx.createGain();
+      const noisePeak =
+        (surface === "earth"
+          ? 0.038
+          : surface === "wood"
+            ? 0.022
+            : surface === "jinzhuan"
+              ? 0.024
+              : 0.034) * amp;
+      noiseGain.gain.setValueAtTime(0.0005, start);
+      noiseGain.gain.linearRampToValueAtTime(noisePeak, start + 0.008);
+      noiseGain.gain.exponentialRampToValueAtTime(0.0003, start + 0.048);
+
+      noiseSrc.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(dest);
+      noiseSrc.start(start);
+      noiseSrc.stop(start + 0.06);
+
+      // 2. Muted heel weight thud (low resonant body; indoor Jinzhuan has warmer hall decay)
+      const osc = ctx.createOscillator();
+      const thudGain = ctx.createGain();
+      osc.type = "sine";
+      const baseFreq =
+        (surface === "wood"
+          ? 70
+          : surface === "earth"
+            ? 66
+            : surface === "jinzhuan"
+              ? 78
+              : 88) * lrShift;
+      osc.frequency.setValueAtTime(baseFreq, start);
+      osc.frequency.exponentialRampToValueAtTime(
+        surface === "wood" ? 35 : surface === "jinzhuan" ? 38 : 42,
+        start + 0.07,
+      );
+
+      const thudPeak =
+        (surface === "wood"
+          ? 0.062
+          : surface === "earth"
+            ? 0.044
+            : surface === "jinzhuan"
+              ? 0.048
+              : 0.052) * amp;
+      const decaySec = surface === "jinzhuan" ? 0.135 : 0.095;
+      thudGain.gain.setValueAtTime(0.0006, start);
+      thudGain.gain.linearRampToValueAtTime(thudPeak, start + 0.012);
+      thudGain.gain.exponentialRampToValueAtTime(0.0003, start + decaySec);
+
+      osc.connect(thudGain);
+      thudGain.connect(dest);
+      osc.start(start);
+      osc.stop(start + decaySec + 0.02);
+    }
+  }
+
+  /**
+   * 根据 7 阶段步行进度动态调制室外环境音衰减与殿内宗教共鸣渐入，绝不产生突兀断音
+   */
+  updateWalkAudioProgression(
+    progress: number,
+    mode: "enter-hall" | "exit-hall" | "courtyard-walk" | "trail-walk",
+    tradition: "buddhist" | "daoist" | "nature",
+  ) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const p = Math.max(0, Math.min(1, progress));
+
+    if (this.ambientGain && this.activeAmbientType) {
+      const mult = SOUND_GAIN_MULT[this.activeAmbientType] ?? 0.36;
+      const baseScale = this.ambientOverrideVolume ?? 1;
+      let enclosureAttenuation = 1;
+      if (mode === "enter-hall") {
+        const indoorRatio = Math.max(0, Math.min(1, (p - 0.5) / 0.38));
+        enclosureAttenuation = 1 - indoorRatio * 0.52;
+      } else if (mode === "exit-hall") {
+        const outdoorRatio = Math.max(0, Math.min(1, (p - 0.18) / 0.52));
+        enclosureAttenuation = 0.48 + outdoorRatio * 0.52;
+      }
+      this.ambientGain.gain.setTargetAtTime(
+        Math.max(0.002, baseScale * mult * enclosureAttenuation),
+        now,
+        0.2,
+      );
+    }
+
+    if (this.religiousGain && tradition !== "nature") {
+      let resonanceLevel = 1;
+      if (mode === "enter-hall") {
+        const indoorRatio = Math.max(0, Math.min(1, (p - 0.52) / 0.38));
+        resonanceLevel = 0.56 + indoorRatio * 0.6;
+      } else if (mode === "exit-hall") {
+        const outdoorRatio = Math.max(0, Math.min(1, (p - 0.18) / 0.56));
+        resonanceLevel = 1.16 - outdoorRatio * 0.52;
+      }
+      this.religiousGain.gain.setTargetAtTime(resonanceLevel, now, 0.22);
+    }
+  }
+
+  resetWalkAudioModifiers() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    if (this.ambientGain && this.activeAmbientType) {
+      const mult = SOUND_GAIN_MULT[this.activeAmbientType] ?? 0.36;
+      const baseScale = this.ambientOverrideVolume ?? 1;
+      this.ambientGain.gain.setTargetAtTime(
+        Math.max(0.002, baseScale * mult),
+        now,
+        0.2,
+      );
+    }
+    if (this.religiousGain) {
+      this.religiousGain.gain.setTargetAtTime(1, now, 0.2);
     }
   }
 

@@ -27,7 +27,7 @@ import { RetreatSceneAtmosphere } from "@/components/RetreatSceneAtmosphere";
 import { SacredEnvironmentLayer } from "@/components/SacredAtmosphere";
 import {
   SpatialViewport2D5,
-  type RoamingTransitionState,
+  useSpatialWalkController,
 } from "@/components/SpatialViewport2D5";
 import { useAppState } from "@/context/AppContext";
 import {
@@ -174,13 +174,14 @@ export function MeditationPage() {
 
   // Full-screen immersive session active flag
   const [inImmersiveSession, setInImmersiveSession] = useState<boolean>(false);
-  const [roamTransition, setRoamTransition] = useState<RoamingTransitionState>({
-    active: false,
-    kind: "push-in",
-    phase: "idle",
-  });
-  const roamTimerRef = useRef<number | null>(null);
-  const roamSettleTimerRef = useRef<number | null>(null);
+  const {
+    activeWalk,
+    settlingFade,
+    startWalk,
+    handleWalkMidpoint,
+    handleWalkComplete,
+    handleWalkCancel,
+  } = useSpatialWalkController();
 
   const realmScenes = getRetreatScenesByRealm(activeScene.category);
   const currentIdx = realmScenes.findIndex(
@@ -254,35 +255,36 @@ export function MeditationPage() {
     setSearchParams({ realm: scene.category, scene: scene.sceneId });
   };
 
+  const handleWalkToScene = (
+    nextScene: RetreatSceneConfig,
+    direction: SpatialConnection["direction"] = "forward",
+    label?: string,
+  ) => {
+    if (nextScene.sceneId === activeScene.sceneId) return;
+    startWalk(
+      {
+        mode: activeScene.category === "nature" ? "trail-walk" : "courtyard-walk",
+        tradition: activeScene.category,
+        sceneId: activeScene.sceneId,
+        fromTitle: activeScene.sceneName,
+        toTitle: nextScene.sceneName,
+        label: label || `漫步前往 · ${nextScene.sceneName}`,
+        exteriorImage: activeScene.primaryImage,
+        interiorImage: nextScene.primaryImage,
+        targetImage: nextScene.primaryImage,
+        durationMs: activeScene.category === "nature" ? 12200 : 11800,
+        direction,
+      },
+      {
+        onArrive: () => applySceneSelection(nextScene),
+      },
+    );
+  };
+
   const handleWalkToConnection = (conn: SpatialConnection) => {
     const nextScene = getRetreatSceneById(conn.targetSceneId);
     if (!nextScene) return;
-    if (roamTimerRef.current) window.clearTimeout(roamTimerRef.current);
-    if (roamSettleTimerRef.current) {
-      window.clearTimeout(roamSettleTimerRef.current);
-    }
-
-    soundManager.playSpatialCue("footstep", 3);
-    soundManager.playSpatialCue("transition-glide");
-
-    setRoamTransition({
-      active: true,
-      kind: conn.transitionType,
-      phase: "depart",
-      label: conn.label,
-    });
-
-    roamTimerRef.current = window.setTimeout(() => {
-      applySceneSelection(nextScene);
-      setRoamTransition({
-        active: true,
-        kind: conn.transitionType,
-        phase: "arrive",
-      });
-      roamSettleTimerRef.current = window.setTimeout(() => {
-        setRoamTransition({ active: false, kind: "push-in", phase: "idle" });
-      }, 420);
-    }, 440);
+    handleWalkToScene(nextScene, conn.direction, conn.label);
   };
 
   const enterRealm = (realm: RetreatRealmId) => {
@@ -302,10 +304,6 @@ export function MeditationPage() {
   useEffect(() => {
     return () => {
       soundManager.stopAllStreams();
-      if (roamTimerRef.current) window.clearTimeout(roamTimerRef.current);
-      if (roamSettleTimerRef.current) {
-        window.clearTimeout(roamSettleTimerRef.current);
-      }
       if (localObjectUrlRef.current) {
         URL.revokeObjectURL(localObjectUrlRef.current);
       }
@@ -805,7 +803,7 @@ export function MeditationPage() {
                 <button
                   key={scene.sceneId}
                   type="button"
-                  onClick={() => applySceneSelection(scene)}
+                  onClick={() => handleWalkToScene(scene)}
                   className={`group relative flex w-44 shrink-0 flex-col overflow-hidden rounded-2xl border text-left transition-all cursor-pointer ${
                     selected
                       ? "border-[#b88b44] ring-2 ring-[#b88b44]/35"
@@ -844,7 +842,11 @@ export function MeditationPage() {
                 <SpatialViewport2D5
                   realm={activeScene.category}
                   spatialNode={activeSpatialNode}
-                  transitionState={roamTransition}
+                  activeWalk={activeWalk}
+                  settlingFade={settlingFade}
+                  onWalkMidpoint={handleWalkMidpoint}
+                  onWalkComplete={handleWalkComplete}
+                  onWalkCancel={handleWalkCancel}
                   onWalkToConnection={handleWalkToConnection}
                 >
                   <div className="relative h-72 sm:h-80 md:h-96">
